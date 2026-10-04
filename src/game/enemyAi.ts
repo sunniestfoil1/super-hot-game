@@ -1,3 +1,4 @@
+﻿import { spawnMuzzleFlashVfx } from './combatVfx';
 import * as THREE from 'three';
 import { Enemy, Bullet } from './types';
 import { createGlbBulletGeometry } from './geometryLoader';
@@ -375,7 +376,7 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
       }
 
       // --- DISPARO EM INTERVALO DE TEMPO FIXO E PREVISÍVEL ---
-      if (enemy.shootCooldown <= 0 && dist < 24.0 && gameState === 'playing') {
+      if (enemy.hasWeapon && enemy.shootCooldown <= 0 && dist < 24.0 && gameState === 'playing') {
         enemy.rightUpperArm.rotation.x += 0.35; // Recuo visual
 
         // Animação de tiro de rifle se disponível
@@ -429,6 +430,7 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
             );
             scene.add(trailLine);
 
+            spawnMuzzleFlashVfx(scene, spawnPos, shootDir);
             bullets.push({
               id: `e-pellet-${Date.now()}-${p}-${Math.random()}`,
               mesh: pMesh,
@@ -476,6 +478,7 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
             );
             scene.add(trailLine);
 
+            spawnMuzzleFlashVfx(scene, spawnPos, shootDir);
             bullets.push({
               id: `e-uzi-${Date.now()}-${u}-${Math.random()}`,
               mesh: uMesh,
@@ -514,7 +517,8 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
           );
           scene.add(trailLine);
 
-          bullets.push({
+          spawnMuzzleFlashVfx(scene, spawnPos, shootDir);
+            bullets.push({
             id: `e-bullet-${Date.now()}-${Math.random()}`,
             mesh: bMesh,
             trailMesh: trailLine,

@@ -47,13 +47,13 @@ const BONE_DIGIT_MAP: Record<string, keyof FingerCurlValues> = {
   Finger_Thumb_end_023: 'thumb',
 };
 
-// Tactical hand material — dark tactical glove com leve emissive para não sumir na sombra
+// Tactical hand material — dark slate charcoal com resposta especular e leitura de forma
 const tacticalHandMaterial = new THREE.MeshStandardMaterial({
-  color: 0x2c2e34,
-  roughness: 0.6,
-  metalness: 0.3,
-  emissive: 0x12141a,
-  emissiveIntensity: 0.12,
+  color: 0x22252c,
+  roughness: 0.45,
+  metalness: 0.35,
+  emissive: 0x0c0e12,
+  emissiveIntensity: 0.25,
   flatShading: false,
 });
 

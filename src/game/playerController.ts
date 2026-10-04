@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getActiveGlbMeshes } from './glbCollisionExtractor';
 
 interface PlayerMovementContext {
   keys: { w: boolean; s: boolean; a: boolean; d: boolean; space: boolean };
@@ -21,10 +22,23 @@ interface PlayerMovementContext {
   onActionKick: (timer: number) => void;
 }
 
+const downRaycaster = new THREE.Raycaster();
+const horizontalRaycaster = new THREE.Raycaster();
+const rayDirs: THREE.Vector3[] = [
+  new THREE.Vector3(1, 0, 0),
+  new THREE.Vector3(-1, 0, 0),
+  new THREE.Vector3(0, 0, 1),
+  new THREE.Vector3(0, 0, -1),
+  new THREE.Vector3(0.707, 0, 0.707),
+  new THREE.Vector3(-0.707, 0, 0.707),
+  new THREE.Vector3(0.707, 0, -0.707),
+  new THREE.Vector3(-0.707, 0, -0.707),
+];
+
 export const updatePlayerMovementAndWallrun = (ctx: PlayerMovementContext) => {
   const { keys, pos, vel, yaw, wallBoxes, wallRun, gameDt, rawDt, isMoving, onActionKick } = ctx;
 
-  const moveSpeed = 6.4;
+  const moveSpeed = 4.8;
   const moveVec = new THREE.Vector3();
   if (keys.w) moveVec.z -= 1;
   if (keys.s) moveVec.z += 1;
@@ -82,42 +96,145 @@ export const updatePlayerMovementAndWallrun = (ctx: PlayerMovementContext) => {
     if (keys.space && ctx.isGrounded) {
       vel.y = 5.4;
       ctx.isGrounded = false;
+      keys.space = false;
       onActionKick(0.2);
     }
   }
 
   const nextPos = pos.clone().addScaledVector(vel, gameDt);
 
-  if (nextPos.y <= 1.7) {
-    nextPos.y = 1.7;
+  // 1. DYNAMIC FLOOR & STAIR CLIMBING (Apenas superfícies horizontais e degraus válidos)
+  const currentFeetY = pos.y - 1.7;
+  let targetFloorY = 1.7; // Altura padrão dos olhos em Y=0
+  const maxStepHeight = 0.45; // Altura máxima de degrau que o jogador pode subir sem pular
+
+  const glbMeshes = getActiveGlbMeshes();
+  if (glbMeshes.length > 0) {
+    const rayOrigin = new THREE.Vector3(nextPos.x, pos.y + 0.5, nextPos.z);
+    downRaycaster.set(rayOrigin, new THREE.Vector3(0, -1, 0));
+    downRaycaster.far = 4.5;
+
+    const floorHits = downRaycaster.intersectObjects(glbMeshes, false);
+    for (const hit of floorHits) {
+      if (!hit.face) continue;
+
+      // Normal da superfície em coordenadas do mundo
+      const worldNormal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
+
+      // Só aceita como chão se a superfície for predominantemente HORIZONTAL (normal.y > 0.55)
+      if (worldNormal.y > 0.55) {
+        const hitFeetY = hit.point.y;
+        // Só permite subir se a nova altura do chão for no máximo maxStepHeight (0.45m) acima dos pés atuais
+        if (hitFeetY <= currentFeetY + maxStepHeight && hitFeetY >= currentFeetY - 2.5) {
+          const exactFloorEyeY = hitFeetY + 1.7;
+          if (exactFloorEyeY > targetFloorY - 2.0) {
+            targetFloorY = exactFloorEyeY;
+          }
+          break; // O primeiro ponto válido apontando para cima é o chão de apoio
+        }
+      }
+    }
+  }
+
+  // Fallback para caixas de colisão de plataformas estruturais (apenas se forem pisos/plataformas finas)
+  wallBoxes.forEach((box) => {
+    const isFloorBox = box.max.y - box.min.y < 0.45; // Apenas caixas de piso
+    if (!isFloorBox) return; // Ignora paredes verticais/altas no cálculo de chão
+
+    const inX = nextPos.x + 0.35 >= box.min.x && nextPos.x - 0.35 <= box.max.x;
+    const inZ = nextPos.z + 0.35 >= box.min.z && nextPos.z - 0.35 <= box.max.z;
+    if (inX && inZ) {
+      const topFeetY = box.max.y;
+      if (topFeetY <= currentFeetY + maxStepHeight && topFeetY >= currentFeetY - 1.5) {
+        const topEyeHeight = topFeetY + 1.7;
+        if (topEyeHeight > targetFloorY) {
+          targetFloorY = topEyeHeight;
+        }
+      }
+    }
+  });
+
+  if (nextPos.y <= targetFloorY) {
+    nextPos.y = targetFloorY;
     vel.y = 0;
     ctx.isGrounded = true;
   }
 
-  // Collision with environment structures
-  const pRad = 0.4;
-  wallBoxes.forEach((box) => {
-    if (
-      nextPos.x + pRad > box.min.x &&
-      nextPos.x - pRad < box.max.x &&
-      pos.z + pRad > box.min.z &&
-      pos.z - pRad < box.max.z &&
-      pos.y > box.min.y &&
-      pos.y < box.max.y + 1.8
-    ) {
-      nextPos.x = pos.x;
-      vel.x = 0;
+  // 2. GLB MESH FACE RAYCASTING FOR WALLS, DOORS, WINDOWS & PILLARS WITH WALL SLIDING
+  const pRad = 0.38; // Raio do cilindro de colisão do jogador
+
+  if (glbMeshes.length > 0) {
+    const bodyCheckHeights = [pos.y - 1.2, pos.y - 0.5];
+
+    for (const checkY of bodyCheckHeights) {
+      const rayOrigin = new THREE.Vector3(nextPos.x, checkY, nextPos.z);
+
+      for (const dir of rayDirs) {
+        horizontalRaycaster.set(rayOrigin, dir);
+        horizontalRaycaster.far = pRad + 0.15;
+
+        const wallHits = horizontalRaycaster.intersectObjects(glbMeshes, false);
+        if (wallHits.length > 0) {
+          const hit = wallHits[0];
+          if (hit.distance < pRad && hit.face) {
+            // Normal da face atingida em coordenadas mundiais
+            const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
+
+            // Repulsa EXCLUSIVAMENTE horizontal no plano X/Z (impede a parede de empurrar o jogador para cima!)
+            const horizNormal = new THREE.Vector3(normal.x, 0, normal.z);
+            if (horizNormal.lengthSq() > 0.001) {
+              horizNormal.normalize();
+              const penetration = pRad - hit.distance;
+              nextPos.addScaledVector(horizNormal, penetration);
+
+              // WALL SLIDING: remove a componente de velocidade perpendicular à parede
+              const normalVel = vel.dot(horizNormal);
+              if (normalVel < 0) {
+                vel.sub(horizNormal.clone().multiplyScalar(normalVel));
+              }
+            }
+          }
+        }
+      }
     }
-    if (
-      nextPos.x + pRad > box.min.x &&
-      nextPos.x - pRad < box.max.x &&
-      nextPos.z + pRad > box.min.z &&
-      nextPos.z - pRad < box.max.z &&
-      pos.y > box.min.y &&
-      pos.y < box.max.y + 1.8
-    ) {
-      nextPos.z = pos.z;
-      vel.z = 0;
+  }
+
+  // 3. COLLISION RESOLUTION COM PILARES E OBSTÁCULOS ESTRUTURAIS
+  const playerFeetY = pos.y - 1.65;
+  const playerHeadY = pos.y + 0.1;
+
+  wallBoxes.forEach((box) => {
+    // Ignorar se o box é chão (horizontal fino)
+    if (box.max.y - box.min.y < 0.4) return;
+    if (playerFeetY >= box.max.y - 0.05 || playerHeadY <= box.min.y) return;
+
+    const isOverlappingX = nextPos.x + pRad > box.min.x && nextPos.x - pRad < box.max.x;
+    const isOverlappingZ = nextPos.z + pRad > box.min.z && nextPos.z - pRad < box.max.z;
+
+    if (isOverlappingX && isOverlappingZ) {
+      const penXMin = Math.abs((nextPos.x + pRad) - box.min.x);
+      const penXMax = Math.abs(box.max.x - (nextPos.x - pRad));
+      const penZMin = Math.abs((nextPos.z + pRad) - box.min.z);
+      const penZMax = Math.abs(box.max.z - (nextPos.z - pRad));
+
+      const minPenX = Math.min(penXMin, penXMax);
+      const minPenZ = Math.min(penZMin, penZMax);
+
+      if (minPenX < minPenZ) {
+        if (penXMin < penXMax) {
+          nextPos.x = box.min.x - pRad;
+        } else {
+          nextPos.x = box.max.x + pRad;
+        }
+        vel.x = 0;
+      } else {
+        if (penZMin < penZMax) {
+          nextPos.z = box.min.z - pRad;
+        } else {
+          nextPos.z = box.max.z + pRad;
+        }
+        vel.z = 0;
+      }
     }
   });
 

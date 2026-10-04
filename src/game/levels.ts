@@ -2,6 +2,48 @@ import { LevelConfig } from './types';
 
 export const LEVELS: LevelConfig[] = [
   {
+    id: 'construcao_industrial',
+    name: '00. CONSTRUÇÃO INDUSTRIAL',
+    subtitle: 'ESTRUTURA DE 3 NÍVEIS · INIMIGOS COM ARMAS, GARRAFAS, FACAS E PUNHOS',
+    useIndustrialModel: true,
+    playerSpawn: [0, 0.1, 14],
+    playerYaw: 0,
+    initialWeapon: 'pistol',
+    initialAmmo: 4,
+    enemies: [
+      // Layer 1 (Térreo -1.5)
+      { pos: [0, -1.5, 2], yaw: Math.PI, hasWeapon: true, weaponType: 'pistol' },
+      { pos: [-6, -1.5, -4], yaw: Math.PI + 0.3, hasWeapon: true, weaponType: 'shotgun' },
+      { pos: [6, -1.5, -4], yaw: Math.PI - 0.3, hasWeapon: true, weaponType: 'bottle' },
+      { pos: [-3, -1.5, -10], yaw: Math.PI + 0.1, hasWeapon: true, weaponType: 'knife' },
+      { pos: [3, -1.5, -10], yaw: Math.PI - 0.1, hasWeapon: false }, // Unarmed brawler
+      // Layer 2 (Mezanino 1.8)
+      { pos: [-6, 1.8, 4], yaw: Math.PI / 4, hasWeapon: true, weaponType: 'rifle' },
+      { pos: [6, 1.8, 4], yaw: -Math.PI / 4, hasWeapon: true, weaponType: 'pistol' },
+      // Layer 3 (Passarela Superior 5.5)
+      { pos: [0, 5.5, -8], yaw: Math.PI, hasWeapon: true, weaponType: 'shotgun' },
+      { pos: [-8, 5.5, -6], yaw: Math.PI - 0.4, hasWeapon: true, weaponType: 'knife' },
+    ],
+    pickups: [
+      // Layer 1 Térreo (Mesas y=-1.6, tabletop y=-0.85)
+      { pos: [-6, -0.85, 6], type: 'bottle', ammo: 1 },
+      { pos: [6, -0.85, 6], type: 'knife', ammo: 1 },
+      { pos: [0, -0.85, 8], type: 'ashtray', ammo: 1 },
+      { pos: [-8, -0.85, -6], type: 'pistol', ammo: 4 },
+      { pos: [8, -0.85, -6], type: 'shotgun', ammo: 2 },
+
+      // Layer 2 Mezanino (Mesas y=1.8, tabletop y=2.55)
+      { pos: [-8, 2.55, 8], type: 'rifle', ammo: 12 },
+      { pos: [8, 2.55, -4], type: 'ashtray', ammo: 1 },
+      { pos: [0, 2.55, 4], type: 'bottle', ammo: 1 },
+
+      // Layer 3 Passarela (Mesas y=5.5, tabletop y=6.25)
+      { pos: [-6, 6.25, -6], type: 'shotgun', ammo: 4 },
+      { pos: [6, 6.25, -6], type: 'knife', ammo: 1 },
+    ],
+    structures: [],
+  },
+  {
     id: 'corredor',
     name: '01. CORREDOR',
     subtitle: 'DESARME E ROUBE ARMAS NO AR COM [E]',

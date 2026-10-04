@@ -202,47 +202,6 @@ export const animatePlayerArms = (ctx: AnimatePlayerArmsContext) => {
   playerLeftFistGroup.visible = true;
   playerRightFistGroup.visible = true;
 
-  ensureHeldEyes(playerLeftFistGroup, playerRightFistGroup);
-  ensureBloodDrips(playerLeftFistGroup, playerRightFistGroup);
-
-  if (showWeapon) {
-    const pistolMesh = playerWeaponGroup.getObjectByName('weapon-pistol');
-    const shotgunMesh = playerWeaponGroup.getObjectByName('weapon-shotgun');
-    const rifleMesh = playerWeaponGroup.getObjectByName('weapon-rifle');
-
-    if (pistolMesh) pistolMesh.visible = weaponType === 'pistol';
-    if (shotgunMesh) shotgunMesh.visible = weaponType === 'shotgun';
-    if (rifleMesh) rifleMesh.visible = weaponType === 'rifle';
-
-    setHeldEyesVisible(false);
-
-    // Right hand grips the pistol in a natural sword-grip pose
-    if (rightHandRig) {
-      setHandFingerCurls(rightHandRig, {
-        thumb: 0.78,
-        index: 0.38,
-        middle: 0.82,
-        ring: 0.86,
-        pinky: 0.88,
-      });
-    }
-    playerRightFistGroup.position.set(0.24, -0.26, -0.52);
-    playerRightFistGroup.rotation.set(0.55, -0.25, -0.45);
-
-    // Left hand supports the weapon from the left side/front (two-handed grip)
-    if (leftHandRig) {
-      setHandFingerCurls(leftHandRig, {
-        thumb: 0.72,
-        index: 0.48,
-        middle: 0.68,
-        ring: 0.74,
-        pinky: 0.84,
-      });
-    }
-    playerLeftFistGroup.position.set(-0.18, -0.20, -0.62);
-    playerLeftFistGroup.rotation.set(0.45, 0.22, 0.35);
-  }
-
   if (recoilAmount > 0) {
     onRecoilUpdate(Math.max(0, recoilAmount - rawDt * 2.8));
   }
@@ -253,23 +212,131 @@ export const animatePlayerArms = (ctx: AnimatePlayerArmsContext) => {
   }
 
   if (showWeapon) {
+    const pistolMesh = playerWeaponGroup.getObjectByName('weapon-pistol');
+    const shotgunMesh = playerWeaponGroup.getObjectByName('weapon-shotgun');
+    const rifleMesh = playerWeaponGroup.getObjectByName('weapon-rifle');
+    const bottleMesh = playerWeaponGroup.getObjectByName('weapon-bottle');
+    const knifeMesh = playerWeaponGroup.getObjectByName('weapon-knife');
+    const ashtrayMesh = playerWeaponGroup.getObjectByName('weapon-ashtray');
+
+    if (pistolMesh) pistolMesh.visible = weaponType === 'pistol';
+    if (shotgunMesh) shotgunMesh.visible = weaponType === 'shotgun';
+    if (rifleMesh) rifleMesh.visible = weaponType === 'rifle';
+    if (bottleMesh) bottleMesh.visible = weaponType === 'bottle';
+    if (knifeMesh) knifeMesh.visible = weaponType === 'knife';
+    if (ashtrayMesh) ashtrayMesh.visible = weaponType === 'ashtray';
+
+    setHeldEyesVisible(false);
+
+    // Encaixe individual e calibração fina da empunhadura de cada arma na palma da mão
+    if (rifleMesh && weaponType === 'rifle') {
+      rifleMesh.position.set(-0.01, -0.01, 0.04);
+      rifleMesh.rotation.set(0.06, -0.04, 0.02);
+      rifleMesh.scale.set(0.85, 0.85, 0.85);
+    }
+    if (shotgunMesh && weaponType === 'shotgun') {
+      shotgunMesh.position.set(0.01, -0.02, 0.02);
+      shotgunMesh.rotation.set(0.08, -0.05, 0.02);
+    }
+    if (bottleMesh && weaponType === 'bottle') {
+      bottleMesh.position.set(0.0, -0.05, 0.06);
+      bottleMesh.rotation.set(-0.25, 0.1, -0.1);
+    }
+    if (knifeMesh && weaponType === 'knife') {
+      knifeMesh.position.set(0.0, -0.04, 0.05);
+      knifeMesh.rotation.set(0.75, 0.15, -0.1);
+    }
+    if (ashtrayMesh && weaponType === 'ashtray') {
+      ashtrayMesh.position.set(0.0, -0.03, 0.05);
+      ashtrayMesh.rotation.set(0.2, 0, 0);
+    }
+
+    // Curvatura anatômica dos dedos para segurar a empunhadura da arma
+    if (rightHandRig) {
+      setHandFingerCurls(rightHandRig, {
+        thumb: 0.65,
+        index: 0.25,   // Indicador estendido no gatilho
+        middle: 0.85,  // Dedos do cabo bem fechados
+        ring: 0.88,
+        pinky: 0.90,
+      });
+    }
+
+    if (leftHandRig) {
+      if (weaponType === 'rifle' || weaponType === 'shotgun') {
+        setHandFingerCurls(leftHandRig, {
+          thumb: 0.70,
+          index: 0.75,
+          middle: 0.80,
+          ring: 0.82,
+          pinky: 0.85,
+        });
+      } else {
+        setHandFingerCurls(leftHandRig, {
+          thumb: 0.50,
+          index: 0.55,
+          middle: 0.60,
+          ring: 0.60,
+          pinky: 0.60,
+        });
+      }
+    }
+
     const isShotgun = weaponType === 'shotgun';
     const isRifle = weaponType === 'rifle';
-    const baseOffset = isShotgun
-      ? { x: 0.28, y: -0.22, z: -0.58 }
+
+    // Recuo sutil e fluido
+    const kickZ = recoilAmount * (isShotgun ? 0.22 : isRifle ? 0.10 : 0.14);
+    const kickY = recoilAmount * (isShotgun ? 0.15 : isRifle ? 0.08 : 0.10);
+    const weaponBob = isMoving ? Math.sin(currentTime * 0.008) * 0.015 : 0;
+
+    const rightHandPos = isShotgun
+      ? { x: 0.22, y: -0.24, z: -0.50 }
       : isRifle
-      ? { x: 0.26, y: -0.24, z: -0.52 }
-      : { x: 0.30, y: -0.26, z: -0.55 };
+      ? { x: 0.20, y: -0.24, z: -0.48 }
+      : { x: 0.20, y: -0.24, z: -0.46 };
 
-    const kickZ = recoilAmount * (isShotgun ? 0.65 : isRifle ? 0.35 : 0.45);
-    const kickY = recoilAmount * (isShotgun ? 0.45 : isRifle ? 0.25 : 0.35);
+    const leftHandPos = isShotgun
+      ? { x: 0.04, y: -0.18, z: -0.72 }
+      : isRifle
+      ? { x: 0.02, y: -0.21, z: -0.62 }
+      : { x: -0.10, y: -0.26, z: -0.50 };
 
-    playerWeaponGroup.position.set(
-      baseOffset.x + (isMoving ? Math.sin(currentTime * 0.008) * 0.02 : 0),
-      baseOffset.y + kickY,
-      baseOffset.z + kickZ
+    // Mão Direita segura a arma com elevação natural da coronha
+    playerRightFistGroup.position.set(
+      rightHandPos.x + weaponBob,
+      rightHandPos.y + kickY,
+      rightHandPos.z + kickZ
     );
-    playerWeaponGroup.rotation.x = -recoilAmount * (isShotgun ? 0.45 : isRifle ? 0.25 : 0.35);
+    playerRightFistGroup.rotation.set(
+      0.15 - recoilAmount * 0.15,
+      -0.08,
+      -0.12
+    );
+
+    // Encaixe perfeito da empunhadura da arma na palma da mão direita
+    playerWeaponGroup.position.set(
+      isShotgun ? 0.02 : isRifle ? 0.02 : -0.01,
+      isShotgun ? 0.04 : isRifle ? 0.04 : -0.02,
+      isShotgun ? -0.08 : isRifle ? -0.06 : -0.12
+    );
+    playerWeaponGroup.rotation.set(
+      isShotgun ? -0.10 : -0.05,
+      isShotgun ? 0.15 : 0.02,
+      0
+    );
+
+    // Mão Esquerda (apoio/secundária no cano/foregrip)
+    playerLeftFistGroup.position.set(
+      leftHandPos.x + weaponBob,
+      leftHandPos.y + kickY * 0.6,
+      leftHandPos.z + kickZ
+    );
+    playerLeftFistGroup.rotation.set(
+      0.25 - recoilAmount * 0.10,
+      0.15,
+      0.18
+    );
     return;
   }
 
@@ -348,13 +415,33 @@ export const animatePlayerArms = (ctx: AnimatePlayerArmsContext) => {
     const curve = Math.sin(newProgress * Math.PI);
 
     if (punchType === 'jab') {
-      playerLeftFistGroup.position.set(-0.18 + curve * 0.08, -0.26 + curve * 0.04, -0.42 - curve * 0.44);
-      playerLeftFistGroup.rotation.set(curve * 0.12, curve * 0.08, curve * 0.2);
+      // Jab (Mão Esquerda): extensão direta com rotação espiral do punho (pronação) e extensão limpa
+      playerLeftFistGroup.position.set(
+        -0.18 + curve * 0.05,
+        -0.26 + curve * 0.08,
+        -0.42 - curve * 0.58
+      );
+      // Rotação: Z vira 180° no ápice (corresponde a ~Math.PI radianos), X dá o tilt de soco
+      playerLeftFistGroup.rotation.set(
+        curve * 0.25,
+        curve * 0.15,
+        curve * Math.PI
+      );
       playerRightFistGroup.position.set(0.24, -0.28 + idleBob, -0.38);
       playerRightFistGroup.rotation.set(0.05, -0.12, -0.08);
     } else if (punchType === 'cross') {
-      playerRightFistGroup.position.set(0.18 - curve * 0.22, -0.26 + curve * 0.03, -0.42 - curve * 0.50);
-      playerRightFistGroup.rotation.set(curve * 0.1, -curve * 0.25, -curve * 0.22);
+      // Cross (Mão Direita): soco direto com projeção, rotação de 180° do punho e trajetória espiralizada
+      playerRightFistGroup.position.set(
+        0.18 - curve * 0.08,
+        -0.26 + curve * 0.08,
+        -0.42 - curve * 0.62
+      );
+      // Rotação: Z vira 180° (-Math.PI), Y torce o tronco/ombro
+      playerRightFistGroup.rotation.set(
+        curve * 0.25,
+        -curve * 0.35,
+        -curve * Math.PI
+      );
       playerLeftFistGroup.position.set(-0.22, -0.28 + idleBob, -0.38);
       playerLeftFistGroup.rotation.set(0.05, 0.12, 0.08);
     } else if (punchType === 'hook') {

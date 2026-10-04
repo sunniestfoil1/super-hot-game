@@ -56,7 +56,7 @@ export const resetLevelEntities = async (params: LevelResetParams): Promise<THRE
   droppedWeapons.length = 0;
 
   // Build Environment
-  const wallBoxes = buildLevelEnvironment(worldGroup, config);
+  const wallBoxes = await buildLevelEnvironment(worldGroup, config);
 
   // Spawn Enemies
   const enemyPromises = config.enemies.map((enemyCfg, idx) => spawnEnemyEntity(scene, enemyCfg, idx, enemyActiveMat));

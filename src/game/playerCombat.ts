@@ -1,6 +1,7 @@
+import { spawnMuzzleFlashVfx } from './combatVfx';
 import * as THREE from 'three';
 import { Bullet, Enemy, WeaponType } from './types';
-import { createGlbBulletGeometry } from './geometryLoader';
+import { createBulletMesh, createBulletTrail, updateBulletTrail } from './bulletVisuals';
 import { superhotSound } from '../audio/SuperhotAudio';
 
 interface FireWeaponParams {
@@ -10,6 +11,7 @@ interface FireWeaponParams {
   infiniteAmmo: boolean;
   camera: THREE.PerspectiveCamera;
   scene: THREE.Scene;
+  playerWeaponGroup?: THREE.Group;
   muzzleFlash: THREE.PointLight;
   dtFactor: number;
   bullets: Bullet[];
@@ -42,6 +44,7 @@ export const firePlayerGuns = (params: FireWeaponParams) => {
     infiniteAmmo,
     camera,
     scene,
+    playerWeaponGroup,
     muzzleFlash,
     dtFactor,
     bullets,
@@ -76,148 +79,112 @@ export const firePlayerGuns = (params: FireWeaponParams) => {
 
   const dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
-  const spawnPos = camera.position.clone().addScaledVector(dir, 0.45);
+
+  // Raycast do centro da mira da tela no espaço 3D para encontrar o ponto focal exato
+  const raycaster = new THREE.Raycaster();
+  raycaster.set(camera.position, dir);
+
+  let targetPoint = camera.position.clone().addScaledVector(dir, 100.0);
+  const hits = raycaster.intersectObjects(scene.children, true);
+
+  for (const hit of hits) {
+    if (hit.distance < 0.6) continue;
+
+    let isPlayerObj = false;
+    let curr: THREE.Object3D | null = hit.object;
+    while (curr) {
+      if (curr === playerWeaponGroup || curr.name?.includes('player') || curr.name?.includes('bullet')) {
+        isPlayerObj = true;
+        break;
+      }
+      curr = curr.parent;
+    }
+    if (!isPlayerObj) {
+      targetPoint = hit.point.clone();
+      break;
+    }
+  }
+
+  // Posição física na boca do cano da arma no espaço 3D real
+  const spawnPos = new THREE.Vector3();
+  if (playerWeaponGroup) {
+    playerWeaponGroup.getWorldPosition(spawnPos);
+    spawnPos.addScaledVector(dir, 0.45);
+  } else {
+    spawnPos.copy(camera.position).addScaledVector(dir, 0.45);
+  }
+
+  // Direção convergente perfeita: da boca da arma direto para o ponto focal onde a mira aponta
+  const aimDir = new THREE.Vector3().subVectors(targetPoint, spawnPos).normalize();
 
   alertEnemiesBySound(enemies, spawnPos, 45.0);
+  spawnMuzzleFlashVfx(scene, spawnPos, aimDir);
 
-  const bulletSpeed = isRifle ? 26.0 : 22.0;
-  const bulletGeo = createGlbBulletGeometry();
+  const bulletSpeed = isRifle ? 28.0 : 22.0;
+
+  const pushBullet = (
+    id: string,
+    pos: THREE.Vector3,
+    d: THREE.Vector3,
+    scale: number,
+    life: number,
+    trailLen: number,
+    isPellet = false
+  ) => {
+    const mesh = createBulletMesh(pos, d, scale);
+    scene.add(mesh);
+    const trail = createBulletTrail();
+    updateBulletTrail(trail, pos, d, trailLen);
+    scene.add(trail);
+    bullets.push({
+      id,
+      mesh,
+      trailMesh: trail,
+      position: mesh.position,
+      direction: d,
+      speed: bulletSpeed,
+      isEnemy: false,
+      life,
+      prevPosition: pos.clone(),
+      isPellet,
+    });
+  };
 
   if (isShotgun) {
-    // Escopeta: Maior tempo de espera do jogo (0.85s) para compensar a grande área de dispersão
     onCooldownChange(0.85);
     superhotSound.playShotgunBlast(dtFactor);
-
-    // Shotgun: Disparo simultâneo de projéteis físicos com rastro ciano-azul
+    // Leque cônico de 7 projéteis físicos alinhados à mira
     for (let i = 0; i < 7; i++) {
-      const spreadDir = dir.clone().add(new THREE.Vector3(
-        (Math.random() - 0.5) * 0.16,
-        (Math.random() - 0.5) * 0.16,
-        (Math.random() - 0.5) * 0.16
+      const spreadDir = aimDir.clone().add(new THREE.Vector3(
+        (Math.random() - 0.5) * 0.14,
+        (Math.random() - 0.5) * 0.14,
+        (Math.random() - 0.5) * 0.14
       )).normalize();
-
-      const bMesh = new THREE.Mesh(
-        bulletGeo,
-        new THREE.MeshStandardMaterial({
-          color: 0x0284c7,
-          emissive: 0x0284c7,
-          emissiveIntensity: 1.0,
-          metalness: 0.85,
-          roughness: 0.2
-        })
-      );
-      bMesh.scale.set(0.55, 0.55, 0.55);
-      bMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), spreadDir);
-      bMesh.position.copy(spawnPos);
-      scene.add(bMesh);
-
-      const trailLine = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints([spawnPos.clone(), spawnPos.clone().addScaledVector(spreadDir, -0.75)]),
-        new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 })
-      );
-      scene.add(trailLine);
-
-      bullets.push({
-        id: `p-pellet-${Date.now()}-${i}`,
-        mesh: bMesh,
-        trailMesh: trailLine,
-        position: bMesh.position,
-        direction: spreadDir,
-        speed: bulletSpeed,
-        isEnemy: false,
-        life: 3.2,
-        prevPosition: spawnPos.clone(),
-      });
+      pushBullet(`p-pellet-${Date.now()}-${i}`, spawnPos.clone(), spreadDir, 0.26, 3.2, 1.0, true);
     }
   } else if (isRifle) {
-    // Mini UZI SMG: Cadência de 10 a 12 balas/s com rajada rápida de 3 projéteis
-    const burstCount = Math.min(3, ammo);
+    // Uzi: rajada alinhada perfeitamente à mira com expansão simétrica por disparo
+    const burstCount = Math.min(4, ammo);
     if (!infiniteAmmo && burstCount > 1) {
       onAmmoChange(ammo - burstCount);
     }
-    // Intervalo de cadência pós-rajada (0.18s)
-    onCooldownChange(0.18);
+    onCooldownChange(0.2);
     superhotSound.playGunshot(dtFactor);
+    onRecoil(0.2);
 
     for (let bIdx = 0; bIdx < burstCount; bIdx++) {
-      const burstDelayOffset = bIdx * 0.04;
-      const burstDir = dir.clone().add(new THREE.Vector3(
-        (Math.random() - 0.5) * 0.04,
-        (Math.random() - 0.5) * 0.04,
-        (Math.random() - 0.5) * 0.04
+      const bloom = 0.005 + bIdx * 0.010;
+      const burstDir = aimDir.clone().add(new THREE.Vector3(
+        (Math.random() - 0.5) * bloom,
+        (Math.random() - 0.5) * bloom,
+        (Math.random() - 0.5) * bloom
       )).normalize();
-
-      const bMesh = new THREE.Mesh(
-        bulletGeo,
-        new THREE.MeshStandardMaterial({
-          color: 0x38bdf8,
-          emissive: 0x0284c7,
-          emissiveIntensity: 1.2,
-          metalness: 0.85,
-          roughness: 0.2
-        })
-      );
-      bMesh.scale.set(0.68, 0.68, 0.68);
-      bMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), burstDir);
-      // Espaçamento físico entre balas dentro da rajada
-      const bSpawnPos = spawnPos.clone().addScaledVector(burstDir, burstDelayOffset * 10);
-      bMesh.position.copy(bSpawnPos);
-      scene.add(bMesh);
-
-      const trailLine = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints([bSpawnPos.clone(), bSpawnPos.clone().addScaledVector(burstDir, -0.95)]),
-        new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 })
-      );
-      scene.add(trailLine);
-
-      bullets.push({
-        id: `p-uzi-${Date.now()}-${bIdx}`,
-        mesh: bMesh,
-        trailMesh: trailLine,
-        position: bMesh.position,
-        direction: burstDir,
-        speed: bulletSpeed,
-        isEnemy: false,
-        life: 4.0,
-        prevPosition: bSpawnPos.clone(),
-      });
+      const bSpawnPos = spawnPos.clone().addScaledVector(aimDir, -bIdx * 1.1);
+      pushBullet(`p-uzi-${Date.now()}-${bIdx}`, bSpawnPos, burstDir, 0.28, 4.0, 1.3);
     }
   } else {
-    // Pistola: Intervalo de 0.42s entre cada disparo
     onCooldownChange(0.42);
     superhotSound.playGunshot(dtFactor);
-
-    const bMesh = new THREE.Mesh(
-      bulletGeo,
-      new THREE.MeshStandardMaterial({
-        color: 0x0284c7,
-        emissive: 0x0284c7,
-        emissiveIntensity: 1.0,
-        metalness: 0.85,
-        roughness: 0.2
-      })
-    );
-    bMesh.scale.set(0.8, 0.8, 0.8);
-    bMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir.clone().normalize());
-    bMesh.position.copy(spawnPos);
-    scene.add(bMesh);
-
-    const trailLine = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([spawnPos.clone(), spawnPos.clone().addScaledVector(dir, -0.8)]),
-      new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 })
-    );
-    scene.add(trailLine);
-
-    bullets.push({
-      id: `p-bullet-${Date.now()}`,
-      mesh: bMesh,
-      trailMesh: trailLine,
-      position: bMesh.position,
-      direction: dir.normalize(),
-      speed: bulletSpeed,
-      isEnemy: false,
-      life: 4.5,
-      prevPosition: spawnPos.clone(),
-    });
+    pushBullet(`p-bullet-${Date.now()}`, spawnPos.clone(), aimDir, 0.34, 4.5, 1.1);
   }
 };

@@ -1,13 +1,15 @@
 import * as THREE from 'three';
 
 export type GameStatus = 'menu' | 'playing' | 'cleared' | 'gameover';
+export type GameMode = 'campaign' | 'endless' | 'sandbox';
 
-export type WeaponType = 'pistol' | 'shotgun' | 'rifle';
+export type WeaponType = 'pistol' | 'shotgun' | 'rifle' | 'bottle' | 'knife' | 'ashtray';
 
 export interface Bullet {
   id: string;
   mesh: THREE.Mesh;
-  trailMesh: THREE.Line | THREE.Mesh;
+  trailMesh: THREE.Object3D;
+  isPellet?: boolean;
   position: THREE.Vector3;
   direction: THREE.Vector3;
   speed: number;
@@ -116,6 +118,7 @@ export interface LevelConfig {
   id: string;
   name: string;
   subtitle: string;
+  useIndustrialModel?: boolean;
   playerSpawn: [number, number, number];
   playerYaw: number;
   initialWeapon: WeaponType | null;
@@ -138,3 +141,4 @@ export interface LevelConfig {
     size: [number, number, number];
   }[];
 }
+

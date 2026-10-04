@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
-import { Bullet, Enemy, GlassShard, AirborneWeapon, DroppedWeapon, WeaponType } from './types';
+import { Bullet, Enemy, GlassShard, AirborneWeapon, DroppedWeapon, WeaponType, GameMode } from './types';
 import { LEVELS } from './levels';
 import { superhotSound } from '../audio/SuperhotAudio';
 import { GameHUD } from '../components/GameHUD';
@@ -8,8 +8,10 @@ import { BloodSplatterHUD } from '../components/BloodSplatterHUD';
 import { createEnemyMaterials, applyEnemyMaterial } from './geometryLoader';
 import { executeEnemyLimbShatter, executeEnemyFullShatter } from './enemyDestructionController';
 import { resetLevelEntities } from './levelLifecycle';
+import { spawnEnemyEntity } from './enemyFactory';
 import { animatePlayerArms } from './firstPersonArms';
 import { initThreeScene } from './sceneSetup';
+import { applyPostProcessingPreset } from './postProcessing';
 import { spawnFloorWeapon, disarmEnemyWeapon } from './weaponSpawner';
 import { firePlayerGuns } from './playerCombat';
 import { executePlayerThrowAction } from './playerThrowController';
@@ -23,6 +25,11 @@ import { EmoteWheelHUD } from '../components/EmoteWheelHUD';
 import { triggerEmoteBySlot, updateEmoteTick, cancelEmote } from './emoteController';
 import { startLevelClearMantra } from './levelMantraController';
 import { createInitialGameState } from './gameStateFactory';
+import { loadGameSettings, saveGameSettings, GameSettings } from './settingsManager';
+import { MobileTouchHUD } from '../components/MobileTouchHUD';
+import { performanceRecorder } from './performanceRecorder';
+import { PerformanceRecorderHUD } from '../components/PerformanceRecorderHUD';
+import { collisionDebugger } from './collisionDebugger';
 
 export const WebHotGame: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -30,6 +37,11 @@ export const WebHotGame: React.FC = () => {
   // React state for HUD
   const [currentLevelIndex, setCurrentLevelIndex] = useState(0);
   const [gameState, setGameState] = useState<'menu' | 'playing' | 'cleared' | 'gameover'>('menu');
+  const [gameMode, setGameMode] = useState<GameMode>('campaign');
+  const [endlessKills, setEndlessKills] = useState(0);
+  const [endlessTime, setEndlessTime] = useState(0);
+  const [bestEndlessKills, setBestEndlessKills] = useState(() => Number(localStorage.getItem('webhot_best_kills') || 0));
+  const [bestEndlessTime, setBestEndlessTime] = useState(() => Number(localStorage.getItem('webhot_best_time') || 0));
   const [activeEmoteDisplay, setActiveEmoteDisplay] = useState<EmoteType>('none');
   const [currentWeapon, setCurrentWeapon] = useState<WeaponType | null>('pistol');
   const [ammo, setAmmo] = useState(3);
@@ -49,9 +61,57 @@ export const WebHotGame: React.FC = () => {
   const [deathWhiteout, setDeathWhiteout] = useState(0);
   const [bloodSplatterActive, setBloodSplatterActive] = useState(false);
   const [emoteWheelOpen, setEmoteWheelOpen] = useState(false);
-  const [mouseSens, setMouseSens] = useState(1.0);
-  const [volume, setVolume] = useState(1.0);
-  const mouseSensRef = useRef(1.0);
+  const [gameSettings, setGameSettings] = useState<GameSettings>(loadGameSettings);
+  const [mouseSens, setMouseSens] = useState(gameSettings.mouseSensitivity);
+  const [volume, setVolume] = useState(gameSettings.masterVolume);
+  const mouseSensRef = useRef(gameSettings.mouseSensitivity);
+  const gameSettingsRef = useRef(gameSettings);
+  gameSettingsRef.current = gameSettings;
+
+  const applySettingsToGraphics = useCallback((newSettings: GameSettings) => {
+    gameSettingsRef.current = newSettings;
+    setMouseSens(newSettings.mouseSensitivity);
+    mouseSensRef.current = newSettings.mouseSensitivity;
+    superhotSound.setMasterVolume(newSettings.masterVolume);
+
+    if (threeRef.current) {
+      const { renderer, dirLight, postProcessing } = threeRef.current;
+      const p = newSettings.preset;
+
+      // 1. Pixel Ratio escalonado por qualidade (Basica = 1.0 para rodar fluído no celular)
+      const maxPR = p === 'basica' ? 1.0 : p === 'media' ? 1.25 : p === 'alta' ? 1.5 : 2.0;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPR));
+
+      // 2. Sombras dinâmicas (Desativadas no Básico para eliminar gargalo de GPU)
+      const enableShadows = newSettings.shadowQuality !== 'off' && p !== 'basica';
+      renderer.shadowMap.enabled = enableShadows;
+      if (dirLight) {
+        dirLight.castShadow = enableShadows;
+        if (enableShadows) {
+          const mapSize = p === 'media' ? 512 : p === 'alta' ? 2048 : 4096;
+          if (dirLight.shadow.mapSize.width !== mapSize) {
+            dirLight.shadow.mapSize.set(mapSize, mapSize);
+            if (dirLight.shadow.map) {
+              dirLight.shadow.map.dispose();
+              dirLight.shadow.map = null;
+            }
+          }
+        }
+      }
+
+      // 3. Ativação seletiva dos passes de pós-processamento
+      if (postProcessing) {
+        applyPostProcessingPreset(postProcessing, newSettings);
+      }
+    }
+  }, []);
+
+  const isMobileDevice = React.useMemo(() => {
+    return ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+  }, []);
+
+  const showMobileHUD = gameSettings.interfaceMode === 'mobile' || (gameSettings.interfaceMode === 'auto' && isMobileDevice);
+
   const mantraIntervalRef = useRef<number | null>(null);
   // Ref para loadLevel evitar dependência circular com triggerLevelClear
   const loadLevelRef = useRef<(idx: number) => void>(() => {});
@@ -71,10 +131,17 @@ export const WebHotGame: React.FC = () => {
     stateRef.current.droppedWeapons.push(spawnFloorWeapon(threeRef.current.scene, pos, type, ammoCount, id));
   }, []);
 
-  // Disarm Enemy
+  // Disarm Enemy — quando o inimigo morre ou é desarmado, a arma voa na direção da cabeça do jogador
   const disarmEnemy = useCallback((enemy: Enemy, upwardForce = 4.2) => {
     if (!threeRef.current) return;
-    const aw = disarmEnemyWeapon(threeRef.current.scene, enemy, upwardForce, stateRef.current.dtFactor);
+    const playerHeadPos = stateRef.current.pos.clone();
+    const aw = disarmEnemyWeapon(
+      threeRef.current.scene,
+      enemy,
+      upwardForce,
+      stateRef.current.dtFactor,
+      playerHeadPos
+    );
     if (aw) stateRef.current.airborneWeapons.push(aw);
   }, []);
 
@@ -98,9 +165,11 @@ export const WebHotGame: React.FC = () => {
     const s = stateRef.current;
     if (s.gameState === 'cleared') return;
     s.gameState = 'cleared';
-    s.targetDtFactor = 1.0;
-    s.dtFactor = 1.0;
-    startLevelClearMantra({
+    s.clearSlowTimer = 2.2;
+    s.targetDtFactor = 0.07;
+    s.dtFactor = 0.07;
+    // Primeiro: câmera lenta nos estilhaços; depois SUPER HOT flutuante
+    mantraIntervalRef.current = window.setTimeout(() => startLevelClearMantra({
       onSetGameState: (st) => setGameState(st),
       onSetMantraWord: (w) => setMantraWord(w),
       onAutoAdvance: () => {
@@ -114,7 +183,7 @@ export const WebHotGame: React.FC = () => {
         });
       },
       intervalRef: mantraIntervalRef,
-    });
+    }), 2300);
   }, []);
 
   // Shatter Complete Enemy
@@ -128,15 +197,62 @@ export const WebHotGame: React.FC = () => {
         glassShards: stateRef.current.glassShards,
         onDisarm: (e) => disarmEnemy(e, 3.5),
         onClearCheck: () => {
-          const remaining = stateRef.current.enemies.filter((e) => e.alive).length;
-          setEnemiesRemaining(remaining);
-          if (remaining === 0) triggerLevelClear();
+          const s = stateRef.current;
+          if (s.gameMode === 'endless') {
+            s.endlessKills += 1;
+            const k = s.endlessKills;
+            setEndlessKills(k);
+
+            if (k > s.bestEndlessKills) {
+              s.bestEndlessKills = k;
+              localStorage.setItem('webhot_best_kills', String(k));
+              setBestEndlessKills(k);
+            }
+            if (s.endlessTime > s.bestEndlessTime) {
+              s.bestEndlessTime = s.endlessTime;
+              localStorage.setItem('webhot_best_time', String(s.endlessTime));
+              setBestEndlessTime(s.endlessTime);
+            }
+
+            // Respawn dinâmico de inimigos em posições de piso descobertas no GLB
+            if (threeRef.current) {
+              const floorBoxes = s.wallBoxes.filter((b) => b.max.y - b.min.y < 0.45);
+              let randomPos: [number, number, number] = [ (Math.random() - 0.5) * 12, 0.1, (Math.random() - 0.5) * 12 ];
+
+              if (floorBoxes.length > 0) {
+                const targetBox = floorBoxes[Math.floor(Math.random() * floorBoxes.length)];
+                const center = new THREE.Vector3();
+                targetBox.getCenter(center);
+                randomPos = [center.x + (Math.random() - 0.5) * 4, targetBox.max.y + 0.1, center.z + (Math.random() - 0.5) * 4];
+              }
+              const weaponTypes: (WeaponType | undefined)[] = ['pistol', 'shotgun', 'rifle', 'bottle', 'knife', undefined];
+              const wType = weaponTypes[Math.floor(Math.random() * weaponTypes.length)];
+
+              spawnEnemyEntity(
+                threeRef.current.scene,
+                {
+                  pos: randomPos,
+                  yaw: Math.random() * Math.PI * 2,
+                  hasWeapon: wType !== undefined,
+                  weaponType: wType,
+                },
+                s.enemies.length,
+                enemyActiveMat
+              ).then((newEnemy) => {
+                s.enemies.push(newEnemy);
+              });
+            }
+          } else {
+            const remaining = s.enemies.filter((e) => e.alive).length;
+            setEnemiesRemaining(remaining);
+            if (remaining === 0) triggerLevelClear();
+          }
         },
       },
       hitDirection
     );
     stateRef.current.actionKickTimer = 0.3;
-  }, [disarmEnemy, triggerLevelClear]);
+  }, [disarmEnemy, enemyActiveMat, triggerLevelClear]);
 
   // Game Over
   const triggerGameOver = useCallback(() => {
@@ -209,8 +325,7 @@ export const WebHotGame: React.FC = () => {
     s.isPunching = false;
     s.currentEmote = 'none';
     s.emoteProgress = 0;
-    s.deathFade = 0;
-    setDeathWhiteout(0);
+    s.constructProgress = 0.0; // Inicia a transição Matrix Construct / Sketch-to-Reality
     s.wallRun.isWallRunning = false;
     s.wallRun.tiltAngle = 0;
 
@@ -277,7 +392,7 @@ export const WebHotGame: React.FC = () => {
     });
   }, [disarmEnemy, enemyStunnedMat, shatterEnemy]);
 
-  // Catch Weapon Mid-Air
+  // Catch Weapon Mid-Air or Floor when targeted
   const attemptCatchAirborneWeapon = useCallback(() => {
     const s = stateRef.current;
     if (!threeRef.current) return false;
@@ -287,6 +402,7 @@ export const WebHotGame: React.FC = () => {
       camera,
       scene,
       airborneWeapons: s.airborneWeapons,
+      droppedWeapons: s.droppedWeapons,
       onCaught: (type, ammo) => {
         s.currentWeapon = type;
         s.ammo = ammo;
@@ -320,6 +436,7 @@ export const WebHotGame: React.FC = () => {
       infiniteAmmo,
       camera: threeRef.current.camera,
       scene: threeRef.current.scene,
+      playerWeaponGroup: threeRef.current.playerWeaponGroup,
       muzzleFlash: threeRef.current.muzzleFlash,
       dtFactor: s.dtFactor,
       bullets: s.bullets,
@@ -425,6 +542,25 @@ export const WebHotGame: React.FC = () => {
       frameCounter++;
 
       const s = stateRef.current;
+      if (s.gameState === 'playing' && s.gameMode === 'endless') {
+        s.endlessTime += rawDt * s.dtFactor;
+        setEndlessTime(s.endlessTime);
+      }
+
+      // Update Motion Blur Pass
+      if (threeRef.current && threeRef.current.postProcessing) {
+        const pp = threeRef.current.postProcessing;
+        if (pp.motionBlurPass) {
+          const mbEnabled = gameSettingsRef.current.motionBlurEnabled;
+          pp.motionBlurPass.uniforms['enabled'].value = mbEnabled ? 1.0 : 0.0;
+          if (mbEnabled) {
+            const vx = s.vel.x * 0.003 * s.dtFactor;
+            const vz = s.vel.z * 0.003 * s.dtFactor;
+            pp.motionBlurPass.uniforms['velocity'].value.set(vx, vz);
+          }
+        }
+      }
+
       s.emoteProgress = updateEmoteTick(rawDt, s, () => {
         setActiveEmoteDisplay('none');
       });
@@ -453,20 +589,44 @@ export const WebHotGame: React.FC = () => {
         shatterLimb,
         spawnDroppedWeapon,
         triggerGameOver,
+        isBasicaPreset: gameSettingsRef.current.preset === 'basica',
         onWeaponPickup: (type, ammoCount) => {
           setCurrentWeapon(type);
           setAmmo(ammoCount);
         },
+        onCanCatchWeaponChange: (canCatch) => setCanCatchWeaponId(canCatch ? 'active' : null),
         onCanPunchChange: (canPunch) => setCanPunchEnemy(canPunch),
         onCanHotswitchChange: (canHotswitch) => setCanHotswitchEnemy(canHotswitch),
         onDtFactorChange: (dt) => setDtFactorDisplay(dt),
         onHotswitchCooldownChange: (cd) => setHotswitchCooldownDisplay(cd),
       });
 
+      if (threeRef.current?.renderer) {
+        performanceRecorder.recordFrame(threeRef.current.renderer, s, rawDt);
+      }
+
+      if (collisionDebugger.getIsVisible()) {
+        collisionDebugger.updatePlayerPos(s.pos);
+      }
+
       animId = requestAnimationFrame(loop);
     };
 
     animId = requestAnimationFrame(loop);
+
+    const onKeyDownDebug = (e: KeyboardEvent) => {
+      if ((e.key === 'F8' || e.key === 'F9') && threeRef.current) {
+        e.preventDefault();
+        collisionDebugger.toggleDebug(
+          threeRef.current.scene,
+          stateRef.current.wallBoxes,
+          [],
+          [],
+          stateRef.current.pos
+        );
+      }
+    };
+    window.addEventListener('keydown', onKeyDownDebug);
 
     const onResize = () => {
       if (!containerRef.current || !threeRef.current) return;
@@ -497,6 +657,7 @@ export const WebHotGame: React.FC = () => {
       cancelled = true;
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', onResize);
+      window.removeEventListener('keydown', onKeyDownDebug);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       if (threeRef.current) {
         const { renderer, scene } = threeRef.current;
@@ -548,9 +709,49 @@ export const WebHotGame: React.FC = () => {
         />
       )}
 
+      {/* Mobile Touch HUD Controls */}
+      {gameState === 'playing' && showMobileHUD && (
+        <MobileTouchHUD
+          weaponType={currentWeapon}
+          ammo={ammo}
+          canCatchWeapon={canCatchWeaponId !== null}
+          canHotswitchEnemy={canHotswitchEnemy}
+          hotswitchCooldown={hotswitchCooldownDisplay}
+          touchSensitivity={gameSettings.touchSensitivity}
+          onTouchSensitivityChange={(val) => {
+            const updated = { ...gameSettings, touchSensitivity: val };
+            setGameSettings(updated);
+            saveGameSettings(updated);
+          }}
+          onMoveKeysChange={(k) => {
+            stateRef.current.keys.w = k.w;
+            stateRef.current.keys.s = k.s;
+            stateRef.current.keys.a = k.a;
+            stateRef.current.keys.d = k.d;
+          }}
+          onLookDelta={(dx, dy) => {
+            const sensitivity = 0.003 * gameSettings.touchSensitivity;
+            stateRef.current.yaw -= dx * sensitivity;
+            stateRef.current.pitch -= dy * sensitivity;
+            stateRef.current.pitch = Math.max(-1.48, Math.min(1.48, stateRef.current.pitch));
+            const deltaMag = Math.sqrt(dx * dx + dy * dy);
+            stateRef.current.mouseDeltaMag = Math.min(0.20, stateRef.current.mouseDeltaMag + deltaMag * 0.015);
+          }}
+          onFire={firePlayerWeapon}
+          onThrow={throwPlayerWeapon}
+          onCatchWeapon={attemptCatchAirborneWeapon}
+          onHotswitch={executeHotswitch}
+        />
+      )}
+
       <GameHUD
         levelName={currentLevelConfig.name}
         levelSubtitle={currentLevelConfig.subtitle}
+        gameMode={gameMode}
+        endlessKills={endlessKills}
+        endlessTime={endlessTime}
+        bestEndlessKills={bestEndlessKills}
+        bestEndlessTime={bestEndlessTime}
         weaponType={currentWeapon}
         ammo={ammo}
         enemiesRemaining={enemiesRemaining}
@@ -567,15 +768,19 @@ export const WebHotGame: React.FC = () => {
         devMode={devMode}
         godMode={godMode}
         infiniteAmmo={infiniteAmmo}
-        mouseSens={mouseSens}
-        volume={volume}
-        onMouseSensChange={(v) => {
-          setMouseSens(v);
-          mouseSensRef.current = v;
+        gameSettings={gameSettings}
+        onUpdateSettings={(newSettings) => {
+          setGameSettings(newSettings);
+          saveGameSettings(newSettings);
+          applySettingsToGraphics(newSettings);
         }}
-        onVolumeChange={(v) => {
-          setVolume(v);
-          superhotSound.setMasterVolume(v);
+        onExitToMenu={() => {
+          if (document.pointerLockElement) {
+            document.exitPointerLock();
+          }
+          setIsPointerLocked(false);
+          setGameState('menu');
+          stateRef.current.gameState = 'menu';
         }}
         onToggleDev={() => setDevMode((prev) => !prev)}
         onToggleGodMode={() => setGodMode((prev) => !prev)}
@@ -589,8 +794,12 @@ export const WebHotGame: React.FC = () => {
           setAmmo(s.ammo);
         }}
         onStartGame={() => {
-          loadLevel(0);
-          containerRef.current?.requestPointerLock();
+          stateRef.current.gameMode = 'campaign';
+          setGameMode('campaign');
+          loadLevel(1); // Standard campaign level 1
+          if (!showMobileHUD) {
+            containerRef.current?.requestPointerLock();
+          }
           if (threeRef.current?.mountWeaponModels) {
             threeRef.current.mountWeaponModels();
           }
@@ -598,9 +807,62 @@ export const WebHotGame: React.FC = () => {
             threeRef.current.ensurePostProcessing();
           }
         }}
-        onRestart={() => loadLevel(currentLevelIndex)}
+        onStartEndlessGame={() => {
+          const s = stateRef.current;
+          s.gameMode = 'endless';
+          s.endlessKills = 0;
+          s.endlessTime = 0;
+          setGameMode('endless');
+          setEndlessKills(0);
+          setEndlessTime(0);
+          loadLevel(0); // Level 0 is 'construcao_industrial'
+          if (!showMobileHUD) {
+            containerRef.current?.requestPointerLock();
+          }
+          if (threeRef.current?.mountWeaponModels) {
+            threeRef.current.mountWeaponModels();
+          }
+          if (threeRef.current?.ensurePostProcessing) {
+            threeRef.current.ensurePostProcessing();
+          }
+        }}
+        onStartSandboxGame={() => {
+          const s = stateRef.current;
+          s.gameMode = 'sandbox';
+          s.endlessKills = 0;
+          s.endlessTime = 0;
+          setGameMode('sandbox');
+          setEndlessKills(0);
+          setEndlessTime(0);
+          loadLevel(0); // Sandbox mode uses industrial level 0
+          if (!showMobileHUD) {
+            containerRef.current?.requestPointerLock();
+          }
+          if (threeRef.current?.mountWeaponModels) {
+            threeRef.current.mountWeaponModels();
+          }
+          if (threeRef.current?.ensurePostProcessing) {
+            threeRef.current.ensurePostProcessing();
+          }
+        }}
+        onRestart={() => {
+          const s = stateRef.current;
+          if (s.gameMode === 'endless') {
+            s.endlessKills = 0;
+            s.endlessTime = 0;
+            setEndlessKills(0);
+            setEndlessTime(0);
+            loadLevel(0);
+          } else {
+            loadLevel(currentLevelIndex);
+          }
+        }}
         onNextLevel={() => loadLevel(currentLevelIndex + 1)}
-        onLockPointer={() => containerRef.current?.requestPointerLock()}
+        onLockPointer={() => {
+          if (!showMobileHUD) {
+            containerRef.current?.requestPointerLock();
+          }
+        }}
       />
 
       {/* Roleta de emotes — feedback visual enquanto o emote estiver ativo */}
@@ -613,6 +875,13 @@ export const WebHotGame: React.FC = () => {
           });
         }} />
       )}
+
+      {/* Gravador & Telemetria de Desempenho (Caixa Preta - F8) */}
+      <PerformanceRecorderHUD
+        graphicsPreset={gameSettings.preset}
+        webglRenderer={threeRef.current?.renderer ? 'WebGL' : undefined}
+      />
     </div>
   );
 };
+

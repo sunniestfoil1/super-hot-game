@@ -1,3 +1,4 @@
+import { updateCombatVfx } from './combatVfx';
 import * as THREE from 'three';
 import { Bullet, Enemy, GlassShard, AirborneWeapon, DroppedWeapon } from './types';
 import { updateBulletsAndCollisions } from './bulletPhysics';
@@ -5,6 +6,7 @@ import { updateAirborneWeapons } from './weaponPhysics';
 import { updateEnemyAi } from './enemyAi';
 import { updatePlayerMovementAndWallrun } from './playerController';
 import { animatePlayerArms } from './firstPersonArms';
+import { shardPool } from './shatterEffect';
 import { superhotSound } from '../audio/SuperhotAudio';
 import { SceneSetupResult } from './sceneSetup';
 
@@ -19,6 +21,8 @@ export interface GameLoopContext {
     dtFactor: number;
     targetDtFactor: number;
     actionKickTimer: number;
+    clearSlowTimer: number;
+    constructProgress: number;
     mouseDeltaMag: number;
     hotswitchCooldown: number;
     pos: THREE.Vector3;
@@ -52,7 +56,9 @@ export interface GameLoopContext {
   shatterLimb: (enemy: Enemy, isLeft: boolean) => void;
   spawnDroppedWeapon: (pos: THREE.Vector3, type: any, ammo: number, id: string) => void;
   triggerGameOver: () => void;
+  isBasicaPreset?: boolean;
   onWeaponPickup: (type: any, ammo: number) => void;
+  onCanCatchWeaponChange: (canCatch: boolean) => void;
   onCanPunchChange: (canPunch: boolean) => void;
   onCanHotswitchChange: (canHotswitch: boolean) => void;
   onDtFactorChange: (dt: number) => void;
@@ -76,6 +82,7 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
     spawnDroppedWeapon,
     triggerGameOver,
     onWeaponPickup,
+    onCanCatchWeaponChange,
     onCanPunchChange,
     onCanHotswitchChange,
     onDtFactorChange,
@@ -92,8 +99,16 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
     s.dtFactor = 0;
     s.vel.set(0, 0, 0);
   } else if (s.gameState === 'cleared') {
-    s.targetDtFactor = 1.0;
-    s.dtFactor = 1.0;
+    // Congela o jogador e deixa os estilhaços do último inimigo em câmera lenta
+    if (s.clearSlowTimer > 0) {
+      s.clearSlowTimer -= rawDt;
+      s.targetDtFactor = 0.07;
+      s.dtFactor = 0.07;
+      s.vel.set(0, 0, 0);
+    } else {
+      s.targetDtFactor = 1.0;
+      s.dtFactor = 1.0;
+    }
   } else {
     const baseIdleRate = 0.03;
     const moveContribution = isMoving ? 1.0 : 0.0;
@@ -172,20 +187,33 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
 
     camera.position.copy(s.pos);
 
-    // Ground weapon pickup check
-    for (let i = s.droppedWeapons.length - 1; i >= 0; i--) {
-      const dw = s.droppedWeapons[i];
-      if (s.pos.distanceTo(dw.position) < 1.4 && s.currentWeapon === null) {
-        onWeaponPickup(dw.type, dw.ammo);
-        s.currentWeapon = dw.type;
-        s.ammo = dw.ammo;
-        s.actionKickTimer = 0.2;
-        superhotSound.playWeaponCatch();
-        scene.remove(dw.group);
-        s.droppedWeapons.splice(i, 1);
+    // Weapon Catch / Pickup prompt check (Arma no ar ou no chão apenas quando olhando na direção dela)
+    let canCatchTarget = false;
+    const camDirVector = new THREE.Vector3();
+    camera.getWorldDirection(camDirVector);
+
+    // 1. Armas no ar voando
+    for (const aw of s.airborneWeapons) {
+      const toW = aw.position.clone().sub(camera.position);
+      if (toW.length() < 3.4 && camDirVector.angleTo(toW) < 0.75) {
+        canCatchTarget = true;
         break;
       }
     }
+
+    // 2. Armas no chão (Apenas se o jogador estiver olhando para baixo na direção da arma)
+    if (!canCatchTarget) {
+      for (const dw of s.droppedWeapons) {
+        const toFloorW = dw.position.clone().sub(camera.position);
+        const dist = toFloorW.length();
+        if (dist < 2.8 && camDirVector.angleTo(toFloorW) < 0.65) {
+          canCatchTarget = true;
+          break;
+        }
+      }
+    }
+
+    onCanCatchWeaponChange(canCatchTarget);
 
     // Punch reach prompt check
     let inPunchReach = false;
@@ -231,6 +259,7 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
   }
 
   // 4. Bullets Update & Collisions
+  updateCombatVfx(scene, gameDt);
   updateBulletsAndCollisions({
     bullets: s.bullets,
     enemies: s.enemies,
@@ -285,31 +314,71 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
     });
   });
 
-  // 7. Glass Shards
+  // 7. Glass Shards (gravidade, colisão com parede/chão, atrito — não deslizam)
   for (let i = s.glassShards.length - 1; i >= 0; i--) {
     const shard = s.glassShards[i];
-    shard.velocity.y -= 7.5 * gameDt;
-    shard.mesh.position.addScaledVector(shard.velocity, gameDt);
-    shard.mesh.rotation.x += shard.rotVelocity.x * gameDt;
-    shard.mesh.rotation.y += shard.rotVelocity.y * gameDt;
-    shard.mesh.rotation.z += shard.rotVelocity.z * gameDt;
+    const pos = shard.mesh.position;
+    const grounded = pos.y <= 0.09;
 
-    if (shard.mesh.position.y <= 0.08) {
-      shard.mesh.position.y = 0.08;
-      shard.velocity.y = -shard.velocity.y * 0.35;
+    if (!grounded) {
+      shard.velocity.y -= 9.0 * gameDt;
+      shard.mesh.rotation.x += shard.rotVelocity.x * gameDt;
+      shard.mesh.rotation.y += shard.rotVelocity.y * gameDt;
+      shard.mesh.rotation.z += shard.rotVelocity.z * gameDt;
+    }
+
+    const prevX = pos.x;
+    const prevZ = pos.z;
+    pos.addScaledVector(shard.velocity, gameDt);
+
+    // Colisão com paredes: reverte o movimento horizontal e quica fraco
+    for (const box of s.wallBoxes) {
+      if (box.containsPoint(pos)) {
+        pos.x = prevX;
+        pos.z = prevZ;
+        shard.velocity.x *= -0.25;
+        shard.velocity.z *= -0.25;
+        break;
+      }
+    }
+
+    if (pos.y <= 0.08) {
+      pos.y = 0.08;
+      shard.velocity.y = Math.abs(shard.velocity.y) > 0.8 ? -shard.velocity.y * 0.25 : 0;
+      // Atrito no chão para parar gradualmente
+      const friction = Math.max(0, 1 - 4.5 * gameDt);
+      shard.velocity.x *= friction;
+      shard.velocity.z *= friction;
+      shard.rotVelocity.multiplyScalar(Math.max(0, 1 - 4.0 * gameDt));
+    } else {
+      // Ar sem travamento brusco (resistência do ar leve)
+      const air = Math.max(0, 1 - 0.25 * gameDt);
+      shard.velocity.x *= air;
+      shard.velocity.z *= air;
     }
 
     shard.life -= gameDt;
     if (shard.life <= 0) {
-      scene.remove(shard.mesh);
+      shardPool.recycleShard(shard);
       s.glassShards.splice(i, 1);
     }
   }
 
-  // Render through post-processing composer instead of raw renderer
-  if (sceneSetup.ensurePostProcessing) {
-    sceneSetup.ensurePostProcessing().composer.render();
+  // Atualiza uniformes da transição cinematográfica Construct / Sketch-to-Reality
+  if (s.constructProgress < 1.0) {
+    s.constructProgress = Math.min(1.0, s.constructProgress + rawDt * 0.95);
+  }
+
+  // Render direct WebGL for 'basica' preset or through post-processing composer for higher presets
+  if (sceneSetup.ensurePostProcessing && !ctx.isBasicaPreset) {
+    const post = sceneSetup.ensurePostProcessing();
+    if (post.constructPass) {
+      post.constructPass.uniforms['progress'].value = s.constructProgress;
+      post.constructPass.uniforms['time'].value = currentTime * 0.001;
+    }
+    post.composer.render();
   } else {
     renderer.render(scene, camera);
   }
 };
+

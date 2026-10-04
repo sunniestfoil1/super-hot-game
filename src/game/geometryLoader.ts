@@ -7,24 +7,22 @@ import { Enemy } from './types';
 // Shared Anatomical Materials (Faceless Translucent Red Crystal with Faceted Gem Shine)
 export const createEnemyMaterials = () => {
   const activeMat = new THREE.MeshStandardMaterial({
-    color: 0xee1133,
-    emissive: 0xd50000,
-    emissiveIntensity: 0.95,
-    roughness: 0.12,
-    metalness: 0.88,
-    transparent: true,
-    opacity: 0.88,
+    color: 0xff002b,
+    emissive: 0xff002b,
+    emissiveIntensity: 1.45,
+    roughness: 0.18,
+    metalness: 0.82,
+    transparent: false,
     flatShading: true,
   });
 
   const stunnedMat = new THREE.MeshStandardMaterial({
     color: 0x94a3b8,
     emissive: 0x475569,
-    emissiveIntensity: 0.3,
-    roughness: 0.7,
-    metalness: 0.2,
-    transparent: true,
-    opacity: 0.75,
+    emissiveIntensity: 0.45,
+    roughness: 0.6,
+    metalness: 0.3,
+    transparent: false,
     flatShading: true,
   });
 

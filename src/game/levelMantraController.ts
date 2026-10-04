@@ -24,10 +24,6 @@ export function startLevelClearMantra(params: LevelClearParams) {
   const BEATS: Array<{ word: 'SUPER' | 'HOT'; holdMs: number }> = [
     { word: 'SUPER', holdMs: 1200 },
     { word: 'HOT', holdMs: 1100 },
-    { word: 'SUPER', holdMs: 1200 },
-    { word: 'HOT', holdMs: 1100 },
-    { word: 'SUPER', holdMs: 1300 },
-    { word: 'HOT', holdMs: 1200 },
   ];
 
   let i = 0;

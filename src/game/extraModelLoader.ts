@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import dollyData from './garrafa_de_dolly.json';
 import knifeData from './valorants_knife_low_poly.json';
 import eyeData from './procedural_eyes_for_ray_ii.json';
+import ashtrayData from './ashtray_model.json';
 
 export const createGlbBottleGeometry = (): THREE.BufferGeometry => {
   if (dollyData && dollyData.positions && dollyData.positions.length > 0) {
@@ -31,6 +32,21 @@ export const createGlbKnifeGeometry = (): THREE.BufferGeometry => {
     return geo;
   }
   return new THREE.BoxGeometry(0.04, 0.28, 0.03);
+};
+
+export const createGlbAshtrayGeometry = (): THREE.BufferGeometry => {
+  if (ashtrayData && ashtrayData.positions && ashtrayData.positions.length > 0) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(ashtrayData.positions, 3));
+    if (ashtrayData.normals && ashtrayData.normals.length > 0) {
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(ashtrayData.normals, 3));
+    } else {
+      geo.computeVertexNormals();
+    }
+    geo.scale(0.00018, 0.00018, 0.00018);
+    return geo;
+  }
+  return new THREE.CylinderGeometry(0.12, 0.1, 0.06, 12);
 };
 
 export const createGlbEyeGeometry = (): THREE.BufferGeometry => {

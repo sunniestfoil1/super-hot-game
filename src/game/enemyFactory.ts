@@ -3,6 +3,7 @@ import { Enemy, LevelConfig } from './types';
 import { createGlbPartGeometry } from './geometryLoader';
 import { createEyeMesh } from './eyeModel';
 import { createPistolInstance } from './pistolModel';
+import { createGlbBottleGeometry, createGlbKnifeGeometry, createGlbShotgunGeometry, createGlbUziGeometry, createGlbAshtrayGeometry } from './extraModelLoader';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
 const BOXING_FBX_URL = '/animations/Boxing.fbx';
@@ -218,17 +219,55 @@ export const spawnEnemyEntity = async (
   rightCalf.castShadow = true;
   root.add(rightCalf);
 
-  // Enemy Gun — official pistol.glb on right forearm (no box)
+  // Enemy Weapon (Pistol, Shotgun, Rifle, Bottle, Knife)
   let gunMesh: THREE.Group | null = null;
   const hasGun = enemyCfg.hasWeapon ?? true;
+  const wType = enemyCfg.weaponType ?? 'pistol';
+  const enemyWeaponMat = new THREE.MeshStandardMaterial({ color: 0x22242a, roughness: 0.4, metalness: 0.6 });
+
   if (hasGun) {
-    const pistol = createPistolInstance();
-    if (pistol) {
-      gunMesh = pistol.root;
-      gunMesh.scale.setScalar(0.85);
-      gunMesh.position.set(0, -0.18, 0.08);
-      gunMesh.rotation.set(0.15, 0, 0);
+    if (wType === 'bottle') {
+      const bottle = new THREE.Mesh(createGlbBottleGeometry(), new THREE.MeshStandardMaterial({ color: 0x228b22, roughness: 0.2, transparent: true, opacity: 0.85 }));
+      bottle.position.set(0, -0.15, 0.05);
+      bottle.rotation.set(Math.PI / 2, 0, 0);
+      gunMesh = new THREE.Group();
+      gunMesh.add(bottle);
       rightForearm.add(gunMesh);
+    } else if (wType === 'knife') {
+      const knife = new THREE.Mesh(createGlbKnifeGeometry(), new THREE.MeshStandardMaterial({ color: 0x44444c, roughness: 0.3, metalness: 0.8 }));
+      knife.position.set(0, -0.15, 0.05);
+      knife.rotation.set(Math.PI / 2, 0, 0);
+      gunMesh = new THREE.Group();
+      gunMesh.add(knife);
+      rightForearm.add(gunMesh);
+    } else if (wType === 'ashtray') {
+      const ashtray = new THREE.Mesh(createGlbAshtrayGeometry(), new THREE.MeshStandardMaterial({ color: 0x8899a6, roughness: 0.15, metalness: 0.2 }));
+      ashtray.position.set(0, -0.15, 0.05);
+      ashtray.rotation.set(Math.PI / 2, 0, 0);
+      gunMesh = new THREE.Group();
+      gunMesh.add(ashtray);
+      rightForearm.add(gunMesh);
+    } else if (wType === 'shotgun') {
+      const sg = new THREE.Mesh(createGlbShotgunGeometry(), enemyWeaponMat);
+      sg.position.set(0, -0.18, 0.08);
+      gunMesh = new THREE.Group();
+      gunMesh.add(sg);
+      rightForearm.add(gunMesh);
+    } else if (wType === 'rifle') {
+      const uzi = new THREE.Mesh(createGlbUziGeometry(), enemyWeaponMat);
+      uzi.position.set(0, -0.18, 0.08);
+      gunMesh = new THREE.Group();
+      gunMesh.add(uzi);
+      rightForearm.add(gunMesh);
+    } else {
+      const pistol = createPistolInstance();
+      if (pistol) {
+        gunMesh = pistol.root;
+        gunMesh.scale.setScalar(0.85);
+        gunMesh.position.set(0, -0.18, 0.08);
+        gunMesh.rotation.set(0.15, 0, 0);
+        rightForearm.add(gunMesh);
+      }
     }
   }
 

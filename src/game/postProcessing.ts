@@ -1,6 +1,6 @@
 /**
- * SUPERHOT Post-Processing — limpeza visual
- * CA só nas bordas · DOF sutil · bloom contido · contraste local
+ * SUPERHOT Post-Processing
+ * Motion Blur, CA, Bloom, Film Pass, and Quality Preset Controls
  */
 
 import * as THREE from 'three';
@@ -49,6 +49,42 @@ const SharpenShader = {
   `,
 };
 
+/** High performance motion blur for camera/player velocity */
+export const MotionBlurShader = {
+  name: 'MotionBlurShader',
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    velocity: { value: new THREE.Vector2(0, 0) },
+    enabled: { value: 0.0 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    uniform vec2 velocity;
+    uniform float enabled;
+    varying vec2 vUv;
+    void main() {
+      if (enabled < 0.5 || length(velocity) < 0.0001) {
+        gl_FragColor = texture2D(tDiffuse, vUv);
+        return;
+      }
+      vec4 color = vec4(0.0);
+      vec2 vel = clamp(velocity, vec2(-0.025), vec2(0.025));
+      for (int i = 0; i < 7; i++) {
+        float t = float(i) / 6.0 - 0.5;
+        color += texture2D(tDiffuse, vUv + vel * t);
+      }
+      gl_FragColor = color / 7.0;
+    }
+  `,
+};
+
 /** Chromatic aberration ONLY at screen edges (not center). */
 const EdgeRGBShiftShader = {
   name: 'EdgeRGBShiftShader',
@@ -70,7 +106,6 @@ const EdgeRGBShiftShader = {
     uniform float angle;
     varying vec2 vUv;
     void main() {
-      // 0 no centro → 1 nas bordas
       float dist = length(vUv - vec2(0.5));
       float edge = smoothstep(0.28, 0.72, dist);
       vec2 offset = amount * edge * vec2(cos(angle), sin(angle));
@@ -78,6 +113,55 @@ const EdgeRGBShiftShader = {
       float g = texture2D(tDiffuse, vUv).g;
       float b = texture2D(tDiffuse, vUv - offset).b;
       gl_FragColor = vec4(r, g, b, 1.0);
+    }
+  `,
+};
+
+/** Matrix Construct / Sketch-To-Reality Loading Transition Shader */
+const ConstructLoadingShader = {
+  name: 'ConstructLoadingShader',
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    progress: { value: 1.0 },
+    time: { value: 0.0 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    uniform float progress;
+    uniform float time;
+    varying vec2 vUv;
+
+    void main() {
+      vec4 sceneColor = texture2D(tDiffuse, vUv);
+
+      if (progress >= 0.999) {
+        gl_FragColor = sceneColor;
+        return;
+      }
+
+      vec2 texel = vec2(0.001, 0.001);
+      vec4 cTop    = texture2D(tDiffuse, vUv + vec2(0.0,  texel.y));
+      vec4 cBottom = texture2D(tDiffuse, vUv + vec2(0.0, -texel.y));
+      vec4 cLeft   = texture2D(tDiffuse, vUv + vec2(-texel.x, 0.0));
+      vec4 cRight  = texture2D(tDiffuse, vUv + vec2( texel.x, 0.0));
+
+      float edge = length((4.0 * sceneColor - cTop - cBottom - cLeft - cRight).rgb);
+      float outline = smoothstep(0.06, 0.20, edge);
+
+      vec3 constructWhite = vec3(0.95, 0.95, 0.96);
+      vec3 sketchLine = mix(constructWhite, vec3(0.20, 0.22, 0.26), outline);
+
+      float renderPhase = smoothstep(0.0, 0.95, progress);
+      vec3 finalColor = mix(sketchLine, sceneColor.rgb, renderPhase);
+
+      gl_FragColor = vec4(finalColor, 1.0);
     }
   `,
 };
@@ -91,6 +175,8 @@ export interface PostProcessingResult {
   sharpenPass: ShaderPass;
   vignettePass: ShaderPass;
   rgbShiftPass: ShaderPass;
+  constructPass: ShaderPass;
+  motionBlurPass: ShaderPass;
 }
 
 export const initPostProcessing = (
@@ -109,62 +195,64 @@ export const initPostProcessing = (
     const gtao = new GTAOPass(scene, camera, width, height);
     gtao.output = GTAOPass.OUTPUT.Default;
     (gtao as any).gtaoMaterial.uniforms['radius'].value = 0.55;
-    (gtao as any).gtaoMaterial.uniforms['distanceExponent'].value = 1.0;
-    (gtao as any).pdMaterial.uniforms['lumaPhi'].value = 10.0;
-    (gtao as any).pdMaterial.uniforms['depthPhi'].value = 2.0;
-    (gtao as any).pdMaterial.uniforms['normalPhi'].value = 3.0;
     composer.addPass(gtao);
     aoPass = gtao;
   } catch {
     const ssao = new SSAOPass(scene, camera, width, height);
     ssao.kernelRadius = 0.55;
-    ssao.minDistance = 0.001;
-    ssao.maxDistance = 0.08;
     composer.addPass(ssao);
     aoPass = ssao;
   }
 
-  // Bloom contido — só janelas / emissive inimigo
-  const bloomPass = new UnrealBloomPass(new THREE.Vector2(width, height), 0.28, 0.4, 0.82);
+  // Motion Blur Pass
+  const motionBlurPass = new ShaderPass(MotionBlurShader);
+  motionBlurPass.uniforms['enabled'].value = 0.0;
+  composer.addPass(motionBlurPass);
+
+  // Bloom
+  const bloomPass = new UnrealBloomPass(new THREE.Vector2(width, height), 0.18, 0.35, 0.88);
   composer.addPass(bloomPass);
 
-  // DOF sutil — centro nítido
+  // DOF
   const bokehPass = new BokehPass(scene, camera, {
-    focus: 12.0,
-    aperture: 0.00004,
-    maxblur: 0.002,
+    focus: 10.0,
+    aperture: 0.000015,
+    maxblur: 0.001,
   });
   composer.addPass(bokehPass);
 
   const hueSatPass = new ShaderPass(HueSaturationShader);
   hueSatPass.uniforms['hue'].value = 0.0;
-  hueSatPass.uniforms['saturation'].value = -0.22;
+  hueSatPass.uniforms['saturation'].value = -0.08;
   composer.addPass(hueSatPass);
 
-  // Exposure↓ contraste↑ via brightness/contrast
   const brightnessContrastPass = new ShaderPass(BrightnessContrastShader);
-  brightnessContrastPass.uniforms['brightness'].value = -0.06;
-  brightnessContrastPass.uniforms['contrast'].value = 0.14;
+  brightnessContrastPass.uniforms['brightness'].value = 0.01;
+  brightnessContrastPass.uniforms['contrast'].value = 0.06;
   composer.addPass(brightnessContrastPass);
 
   const sharpenPass = new ShaderPass(SharpenShader);
   sharpenPass.uniforms['resolution'].value.set(width, height);
-  sharpenPass.uniforms['sharpness'].value = 0.28;
+  sharpenPass.uniforms['sharpness'].value = 0.15;
   composer.addPass(sharpenPass);
 
   const vignettePass = new ShaderPass(VignetteShader);
-  vignettePass.uniforms['offset'].value = 1.05;
-  vignettePass.uniforms['darkness'].value = 1.05;
+  vignettePass.uniforms['offset'].value = 1.25;
+  vignettePass.uniforms['darkness'].value = 0.45;
   composer.addPass(vignettePass);
 
-  // CA só nas bordas
   const rgbShiftPass = new ShaderPass(EdgeRGBShiftShader);
-  rgbShiftPass.uniforms['amount'].value = 0.0022;
+  rgbShiftPass.uniforms['amount'].value = 0.0008;
   rgbShiftPass.uniforms['angle'].value = 0.0;
   composer.addPass(rgbShiftPass);
 
-  const filmPass = new FilmPass(0.015, false);
+  const filmPass = new FilmPass(0.005, false);
   composer.addPass(filmPass);
+
+  const constructPass = new ShaderPass(ConstructLoadingShader);
+  constructPass.uniforms['progress'].value = 1.0;
+  constructPass.uniforms['time'].value = 0.0;
+  composer.addPass(constructPass);
 
   composer.addPass(new OutputPass());
 
@@ -177,8 +265,12 @@ export const initPostProcessing = (
     sharpenPass,
     vignettePass,
     rgbShiftPass,
+    constructPass,
+    motionBlurPass,
   };
 };
+
+import { GameSettings } from './settingsManager';
 
 export const resizePostProcessing = (
   result: PostProcessingResult,
@@ -188,4 +280,33 @@ export const resizePostProcessing = (
   result.composer.setSize(width, height);
   result.bloomPass.setSize(width, height);
   result.sharpenPass.uniforms['resolution'].value.set(width, height);
+};
+
+export const applyPostProcessingPreset = (
+  result: PostProcessingResult,
+  settings: GameSettings
+): void => {
+  const p = settings.preset;
+
+  if (result.bloomPass) {
+    result.bloomPass.enabled = settings.bloomEnabled && p !== 'basica';
+  }
+  if (result.motionBlurPass) {
+    result.motionBlurPass.uniforms['enabled'].value = (settings.motionBlurEnabled && p !== 'basica') ? 1.0 : 0.0;
+  }
+  if (result.gtaoPass) {
+    result.gtaoPass.enabled = p === 'ultra' || p === 'ultra_max';
+  }
+  if (result.bokehPass) {
+    result.bokehPass.enabled = p === 'ultra_max';
+  }
+  if (result.filmPass) {
+    result.filmPass.enabled = p === 'ultra' || p === 'ultra_max';
+  }
+  if (result.sharpenPass) {
+    result.sharpenPass.enabled = p === 'alta' || p === 'ultra' || p === 'ultra_max';
+  }
+  if (result.rgbShiftPass) {
+    result.rgbShiftPass.enabled = p === 'ultra_max';
+  }
 };

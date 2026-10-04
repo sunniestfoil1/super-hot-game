@@ -52,9 +52,9 @@ export function calculateEmoteTransforms(
     const swayX = Math.cos(t * 4.0) * 0.035;
     leftPos.set(-0.08 + swayX, 0.18 + rhythm * 0.04, -0.10).multiplyScalar(envelope);
     rightPos.set(0.08 - swayX, 0.18 - rhythm * 0.04, -0.10).multiplyScalar(envelope);
-    // Palmas viradas para cima: X negativo levanta a palma, Z zero evita virar para dentro
-    leftRot.set(-0.75 + rhythm * 0.15, -0.2, -0.05 * envelope);
-    rightRot.set(-0.75 - rhythm * 0.15, 0.2, 0.05 * envelope);
+    // Palmas viradas para frente / viradas ao contrário do rosto (rotacionadas no eixo Z / Y)
+    leftRot.set(0.65 + rhythm * 0.15, 0.4, Math.PI - 0.2);
+    rightRot.set(0.65 - rhythm * 0.15, -0.4, -Math.PI + 0.2);
     leftCurls  = { thumb: 0.1, index: 0.15, middle: 0.15, ring: 0.18, pinky: 0.2 };
     rightCurls = { thumb: 0.1, index: 0.15, middle: 0.15, ring: 0.18, pinky: 0.2 };
 

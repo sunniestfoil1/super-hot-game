@@ -42,6 +42,8 @@ export const updateAirborneWeapons = (ctx: UpdateAirborneWeaponsContext) => {
     aw.life -= gameDt;
 
     if (aw.isThrownByPlayer) {
+      const isFragile = aw.type === 'ashtray' || aw.type === 'bottle';
+
       for (const e of enemies) {
         if (e.alive && aw.position.distanceTo(e.position.clone().add(new THREE.Vector3(0, 1.1, 0))) < 0.95) {
           superhotSound.playPunchImpact(dtFactor);
@@ -57,15 +59,30 @@ export const updateAirborneWeapons = (ctx: UpdateAirborneWeaponsContext) => {
             e.head.rotation.x = 0.45;
             applyEnemyMaterial(e, enemyStunnedMat);
           }
-          aw.velocity.set((Math.random() - 0.5) * 2, 2.5, (Math.random() - 0.5) * 2);
-          aw.isThrownByPlayer = false;
-          break;
+
+          if (isFragile) {
+            superhotSound.playGlassShatter(dtFactor);
+            scene.remove(aw.group);
+            airborneWeapons.splice(i, 1);
+            break;
+          } else {
+            aw.velocity.set((Math.random() - 0.5) * 2, 2.5, (Math.random() - 0.5) * 2);
+            aw.isThrownByPlayer = false;
+            break;
+          }
         }
       }
     }
 
     if (aw.position.y <= 0.15 || aw.life <= 0) {
-      spawnDroppedWeapon(new THREE.Vector3(aw.position.x, 0.15, aw.position.z), aw.type, aw.ammo, `floor-${i}`);
+      const isFragile = aw.type === 'ashtray' || aw.type === 'bottle';
+      if (aw.isThrownByPlayer && isFragile) {
+        // Only breaks if thrown by player
+        superhotSound.playGlassShatter(dtFactor);
+      } else {
+        // Falls or dropped gently without breaking
+        spawnDroppedWeapon(new THREE.Vector3(aw.position.x, 0.15, aw.position.z), aw.type, aw.ammo, `floor-${i}`);
+      }
       scene.remove(aw.group);
       airborneWeapons.splice(i, 1);
     }

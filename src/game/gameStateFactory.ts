@@ -1,16 +1,23 @@
 import * as THREE from 'three';
-import { Bullet, Enemy, GlassShard, AirborneWeapon, DroppedWeapon, WeaponType } from './types';
+import { Bullet, Enemy, GlassShard, AirborneWeapon, DroppedWeapon, WeaponType, GameMode } from './types';
 import { EmoteType } from './emoteAnimations';
 
 export function createInitialGameState() {
   return {
     gameState: 'menu' as 'menu' | 'playing' | 'cleared' | 'gameover',
+    gameMode: 'campaign' as GameMode,
     levelIndex: 0,
+    endlessKills: 0,
+    endlessTime: 0,
+    bestEndlessKills: Number(localStorage.getItem('webhot_best_kills') || 0),
+    bestEndlessTime: Number(localStorage.getItem('webhot_best_time') || 0),
     currentWeapon: 'pistol' as WeaponType | null,
     ammo: 3,
     dtFactor: 0.03,
     targetDtFactor: 0.03,
     actionKickTimer: 0,
+    clearSlowTimer: 0,
+    constructProgress: 0.0, // 0.0 = Construct Vazio Branco puro, transiciona até 1.0 (Renderização)
     mouseDeltaMag: 0,
     hotswitchCooldown: 0,
     targetedEnemyId: null as string | null,
@@ -47,3 +54,4 @@ export function createInitialGameState() {
     wallBoxes: [] as THREE.Box3[],
   };
 }
+
