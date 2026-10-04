@@ -493,7 +493,6 @@ export const WebHotGame: React.FC = () => {
     document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
-      cancelled = true;
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', onResize);
       document.removeEventListener('visibilitychange', onVisibilityChange);
