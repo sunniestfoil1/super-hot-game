@@ -17,7 +17,7 @@ export interface SceneSetupResult {
   muzzleFlash: THREE.PointLight;
   worldGroup: THREE.Group;
   dirLight: THREE.DirectionalLight;
-  postProcessing: PostProcessingResult | null;
+  postProcessing: PostProcessingResult;
   ensurePostProcessing: () => PostProcessingResult;
   mountWeaponModels: () => void;
   playerPistol: PistolInstance | null;
