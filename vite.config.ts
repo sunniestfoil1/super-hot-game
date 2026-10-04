@@ -11,22 +11,11 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
-    optimizeDeps: {
-      exclude: ['three'],
-    },
     build: {
       target: 'esnext',
       minify: 'esbuild',
       cssMinify: 'esbuild',
       reportCompressedSize: false,
-      rollupOptions: {
-        external: ['three'],
-        output: {
-          paths: {
-            'three': 'https://unpkg.com/three@0.160.0/build/three.module.js',
-          },
-        },
-      },
     },
     server: {
       port: 3001,
