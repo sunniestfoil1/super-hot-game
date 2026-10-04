@@ -102,7 +102,7 @@ function loadClips(): Promise<void> {
 
     clipsLoaded = true;
   }).catch((err) => {
-    console.error('Failed to load FBX clips:', err);
+    console.warn('FBX loader warning (some animations may be unavailable):', err.message || err);
   });
 
   return clipsPromise;

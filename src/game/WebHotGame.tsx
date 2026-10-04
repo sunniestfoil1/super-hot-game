@@ -417,6 +417,7 @@ export const WebHotGame: React.FC = () => {
     let lastTime = performance.now();
     let frameCounter = 0;
     let animId = 0;
+    let cancelled = false;
 
     const loop = (currentTime: number) => {
       const rawDt = Math.min((currentTime - lastTime) / 1000, 0.05);

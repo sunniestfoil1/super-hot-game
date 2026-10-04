@@ -17,7 +17,7 @@ export interface SceneSetupResult {
   muzzleFlash: THREE.PointLight;
   worldGroup: THREE.Group;
   dirLight: THREE.DirectionalLight;
-  postProcessing: PostProcessingResult;
+  postProcessing: PostProcessingResult | null;
   ensurePostProcessing: () => PostProcessingResult;
   mountWeaponModels: () => void;
   playerPistol: PistolInstance | null;
@@ -105,7 +105,7 @@ export const initThreeScene = (container: HTMLDivElement): SceneSetupResult => {
 
   let playerPistol: PistolInstance | null = null;
 
-  // Mount heavy GLBs only when gameplay starts (lazy load).
+  // Mount heavy GLBs immediately on scene init so weapon appears on the menu screen.
   const mountWeaponModels = () => {
     if (playerPistol) return;
     Promise.all([loadPistolTemplate(), loadEyesTemplate()]).then(() => {
@@ -117,6 +117,9 @@ export const initThreeScene = (container: HTMLDivElement): SceneSetupResult => {
       console.error('Failed to load pistol.glb / eyes GLB:', err);
     });
   };
+
+  // Load pistol + eyes immediately on scene setup so they appear on the menu screen
+  mountWeaponModels();
 
   // 2. Shotgun (From free_low_poly_shotgun__escopeta.glb)
   const shotgunMesh = new THREE.Mesh(createGlbShotgunGeometry(), gunMat);

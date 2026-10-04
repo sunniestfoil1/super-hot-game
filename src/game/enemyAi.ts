@@ -267,6 +267,7 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
             playEnemyAction(enemy, enemy.punchClip, false, 0.15);
           }
           onPlayerHit();
+          enemy.punchAttackTimer = 0;
         }
       }
     } else {

@@ -51,6 +51,8 @@ function createBloodDripGroup() {
   for (let i = 0; i < BLOOD_DRIP_COUNT; i++) {
     const mesh = new THREE.Mesh(geo, mat.clone());
     mesh.visible = false;
+    // Orient plane so it stands upright in local hand space (Y-up, no spin)
+    mesh.rotation.set(0, 0, 0);
     mesh.userData = {
       baseX: (Math.random() - 0.5) * 0.04,
       baseY: 0.02 + Math.random() * 0.04,
@@ -128,6 +130,7 @@ function updateBloodDrips(
       ud.baseZ
     );
     m.scale.set(1, stretch, 1);
+    m.rotation.set(0, 0, 0);
     const mat = Array.isArray(m.material) ? m.material[0] : m.material;
     if (mat) mat.opacity = Math.max(0, 0.9 * (1 - fall));
   });
@@ -213,31 +216,31 @@ export const animatePlayerArms = (ctx: AnimatePlayerArmsContext) => {
 
     setHeldEyesVisible(false);
 
-    // Right hand grips the pistol (not frozen mid-emote)
+    // Right hand grips the pistol in a natural sword-grip pose
     if (rightHandRig) {
       setHandFingerCurls(rightHandRig, {
-        thumb: 0.75,
-        index: 0.35, // trigger finger
-        middle: 0.85,
-        ring: 0.88,
-        pinky: 0.9,
+        thumb: 0.78,
+        index: 0.38,
+        middle: 0.82,
+        ring: 0.86,
+        pinky: 0.88,
       });
     }
-    playerRightFistGroup.position.set(0.26, -0.28, -0.48);
-    playerRightFistGroup.rotation.set(0.35, -0.15, -0.25);
+    playerRightFistGroup.position.set(0.24, -0.26, -0.52);
+    playerRightFistGroup.rotation.set(0.55, -0.25, -0.45);
 
     // Left hand supports the weapon from the left side/front (two-handed grip)
     if (leftHandRig) {
       setHandFingerCurls(leftHandRig, {
-        thumb: 0.75,
-        index: 0.50,
-        middle: 0.70,
-        ring: 0.75,
-        pinky: 0.85,
+        thumb: 0.72,
+        index: 0.48,
+        middle: 0.68,
+        ring: 0.74,
+        pinky: 0.84,
       });
     }
-    playerLeftFistGroup.position.set(-0.20, -0.22, -0.58);
-    playerLeftFistGroup.rotation.set(0.30, 0.15, 0.25);
+    playerLeftFistGroup.position.set(-0.18, -0.20, -0.62);
+    playerLeftFistGroup.rotation.set(0.45, 0.22, 0.35);
   }
 
   if (recoilAmount > 0) {

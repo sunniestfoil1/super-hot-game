@@ -13,8 +13,6 @@ export default defineConfig(() => {
     },
     build: {
       target: 'esnext',
-      minify: 'esbuild',
-      cssMinify: 'esbuild',
       reportCompressedSize: false,
     },
     server: {

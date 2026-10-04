@@ -131,13 +131,29 @@ export const updateBulletsAndCollisions = (ctx: UpdateBulletsContext) => {
       }
     }
 
-    // Enemy bullet hits player
-    if (b.isEnemy && gameState === 'playing' && b.position.distanceTo(playerPos) < 0.45) {
-      hit = true;
-      if (!godMode) {
-        onPlayerHit();
-      } else {
-        superhotSound.playWeaponCatch();
+    // Enemy bullet hits player — use raycasting to avoid tunneling
+    if (b.isEnemy && gameState === 'playing') {
+      const enemyBulletMovement = b.position.clone().sub(b.prevPosition);
+      const enemyMoveDist = enemyBulletMovement.length();
+      if (enemyMoveDist > 0.0001) {
+        const enemyRayDir = enemyBulletMovement.clone().normalize();
+        const enemyHitRay = new THREE.Raycaster(b.prevPosition, enemyRayDir, 0, enemyMoveDist + 0.45);
+        const playerHitDist = enemyHitRay.ray.distanceToPoint(playerPos);
+        if (playerHitDist < 0.45) {
+          hit = true;
+          if (!godMode) {
+            onPlayerHit();
+          } else {
+            superhotSound.playWeaponCatch();
+          }
+        }
+      } else if (b.position.distanceTo(playerPos) < 0.45) {
+        hit = true;
+        if (!godMode) {
+          onPlayerHit();
+        } else {
+          superhotSound.playWeaponCatch();
+        }
       }
     }
 
