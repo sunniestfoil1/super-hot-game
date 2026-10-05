@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { RotateCcw, Play, ShieldAlert, Zap, Settings, Volume2, Crosshair, Flame, Trophy, Clock, Cpu, Gauge, Monitor, Smartphone, Activity, Eye } from 'lucide-react';
+import { RotateCcw, Play, ShieldAlert, Zap, Settings, Volume2, Crosshair, Flame, Trophy, Clock, Cpu, Gauge, Monitor, Smartphone, Activity, Eye, Swords } from 'lucide-react';
 import { performanceRecorder, downloadJsonReport } from '../game/performanceRecorder';
 import { GameMode, GameStatus, WeaponType } from '../game/types';
 import { GameSettings, QualityPreset, applyPresetToSettings, runHardwareBenchmark } from '../game/settingsManager';
@@ -38,6 +38,7 @@ interface GameHUDProps {
   onStartGame: () => void;
   onStartEndlessGame: () => void;
   onStartSandboxGame: () => void;
+  onStartCoopGame?: () => void;
   onStartBenchmarkGame?: () => void;
   onRestart: () => void;
   onNextLevel: () => void;
@@ -83,6 +84,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onStartGame,
   onStartEndlessGame,
   onStartSandboxGame,
+  onStartCoopGame,
   onStartBenchmarkGame,
   onRestart,
   onLockPointer,
@@ -164,6 +166,16 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 <Eye className="w-5 h-5 fill-current" />
                 MATE TODOS 2 (EXPLORAÇÃO)
               </button>
+
+              {onStartCoopGame && (
+                <button
+                  onClick={onStartCoopGame}
+                  className="w-full py-4 bg-purple-700 hover:bg-purple-600 text-white font-black text-sm uppercase tracking-widest transition-colors flex items-center justify-center gap-3 cursor-pointer shadow-lg shadow-purple-700/30 border border-purple-400/40"
+                >
+                  <Swords className="w-5 h-5 fill-current animate-pulse" />
+                  🎮 MODO CO-OP LAN (2 JOGADORES - MAPA 4)
+                </button>
+              )}
 
               {onStartBenchmarkGame && (
                 <button

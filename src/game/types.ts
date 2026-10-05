@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 export type GameStatus = 'menu' | 'playing' | 'cleared' | 'gameover';
-export type GameMode = 'campaign' | 'endless' | 'sandbox';
+export type GameMode = 'campaign' | 'endless' | 'sandbox' | 'coop';
 
 export type WeaponType = 'pistol' | 'shotgun' | 'rifle' | 'bottle' | 'knife' | 'ashtray';
 

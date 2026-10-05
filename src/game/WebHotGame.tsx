@@ -34,6 +34,9 @@ import { replaySystem, ReplayCameraMode } from './replaySystem';
 import { ReplayHUD } from '../components/ReplayHUD';
 import { benchmarkRunner } from './benchmarkRunner';
 import { BenchmarkHUD } from '../components/BenchmarkHUD';
+import { coopNetwork } from './coopNetwork';
+import { CoopMenuHUD } from '../components/CoopMenuHUD';
+import { spawnCoopPartnerMesh, updateCoopPartnerMesh, CoopPartnerMesh } from './coopPartnerMesh';
 
 export const WebHotGame: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -42,6 +45,7 @@ export const WebHotGame: React.FC = () => {
   const [currentLevelIndex, setCurrentLevelIndex] = useState(0);
   const [gameState, setGameState] = useState<'menu' | 'playing' | 'cleared' | 'gameover'>('menu');
   const [gameMode, setGameMode] = useState<GameMode>('campaign');
+  const [showCoopMenu, setShowCoopMenu] = useState(false);
   const [endlessKills, setEndlessKills] = useState(0);
   const [endlessTime, setEndlessTime] = useState(0);
   const [bestEndlessKills, setBestEndlessKills] = useState(() => Number(localStorage.getItem('webhot_best_kills') || 0));
@@ -130,6 +134,8 @@ export const WebHotGame: React.FC = () => {
   const stateRef = useRef(createInitialGameState());
 
   const threeRef = useRef<ReturnType<typeof initThreeScene> | null>(null);
+  const coopPartnerRef = useRef<CoopPartnerMesh | null>(null);
+  const coopSpawnerTimerRef = useRef(0);
 
   // Spawn Floor Weapon
   const spawnDroppedWeapon = useCallback((pos: THREE.Vector3, type: WeaponType, ammoCount: number, id: string) => {
@@ -360,6 +366,11 @@ export const WebHotGame: React.FC = () => {
     if (!threeRef.current) return;
     const { scene, worldGroup, camera } = threeRef.current;
 
+    if (coopPartnerRef.current) {
+      scene.remove(coopPartnerRef.current.group);
+      coopPartnerRef.current = null;
+    }
+
     s.wallBoxes = await resetLevelEntities({
       scene,
       worldGroup,
@@ -374,6 +385,39 @@ export const WebHotGame: React.FC = () => {
       enemyActiveMat,
     });
   }, [enemyActiveMat]);
+
+  // Start Realtime LAN CO-OP Match
+  const startCoopMatch = useCallback((isHost: boolean, roomCode: string) => {
+    setShowCoopMenu(false);
+    const s = stateRef.current;
+    s.gameMode = 'coop';
+    setGameMode('coop');
+
+    const lowSettings: GameSettings = {
+      ...gameSettingsRef.current,
+      preset: 'basica',
+      shadowQuality: 'off',
+      bloomEnabled: false,
+      motionBlurEnabled: false,
+    };
+    setGameSettings(lowSettings);
+    applySettingsToGraphics(lowSettings);
+
+    if (isHost) {
+      coopNetwork.initHost(roomCode);
+    } else {
+      coopNetwork.initClient(roomCode);
+    }
+
+    loadLevel(0); // Map 4 / Industrial Arena
+
+    if (!showMobileHUD) {
+      containerRef.current?.requestPointerLock();
+    }
+    if (threeRef.current?.mountWeaponModels) {
+      threeRef.current.mountWeaponModels();
+    }
+  }, [applySettingsToGraphics, loadLevel, showMobileHUD]);
 
   // Sincroniza loadLevelRef sempre que loadLevel muda
   React.useEffect(() => {
@@ -612,6 +656,59 @@ export const WebHotGame: React.FC = () => {
         onDtFactorChange: (dt) => setDtFactorDisplay(dt),
         onHotswitchCooldownChange: (cd) => setHotswitchCooldownDisplay(cd),
       });
+
+      // CO-OP network sync, 3D partner update & 3.0s mob spawner
+      if (s.gameMode === 'coop' && s.gameState === 'playing') {
+        coopNetwork.sendState({
+          pos: s.pos,
+          yaw: s.yaw,
+          pitch: s.pitch,
+          isShooting: s.shootCooldown > 0.1,
+          dtFactor: s.dtFactor,
+        });
+
+        const partnerState = coopNetwork.getPartnerState();
+        if (partnerState && threeRef.current) {
+          if (!coopPartnerRef.current) {
+            coopPartnerRef.current = spawnCoopPartnerMesh(threeRef.current.scene, !coopNetwork.getIsHost());
+          }
+          updateCoopPartnerMesh(coopPartnerRef.current, partnerState, rawDt);
+
+          const partnerDt = partnerState.dtFactor ?? 0.03;
+          if (partnerDt > 0.08 && s.targetDtFactor < 0.1) {
+            s.targetDtFactor = partnerDt;
+            s.dtFactor = Math.max(s.dtFactor, partnerDt);
+          }
+        }
+
+        coopSpawnerTimerRef.current += rawDt * s.dtFactor;
+        if (coopSpawnerTimerRef.current >= 3.0 && threeRef.current) {
+          coopSpawnerTimerRef.current = 0;
+          const spawnPositions = [
+            new THREE.Vector3(0, 1.7, -12),
+            new THREE.Vector3(-10, 1.7, 5),
+            new THREE.Vector3(10, 1.7, 5),
+            new THREE.Vector3(0, 1.7, 12),
+            new THREE.Vector3(-8, 1.7, -8),
+            new THREE.Vector3(8, 1.7, -8),
+          ];
+          const spawnPos = spawnPositions[Math.floor(Math.random() * spawnPositions.length)];
+          spawnEnemyEntity(
+            threeRef.current.scene,
+            {
+              pos: [spawnPos.x, spawnPos.y, spawnPos.z],
+              yaw: Math.random() * Math.PI * 2,
+              hasWeapon: true,
+              weaponType: 'pistol',
+            },
+            s.enemies.length,
+            enemyActiveMat
+          ).then((mob) => {
+            s.enemies.push(mob);
+            setEnemiesRemaining(s.enemies.filter((e) => e.alive).length);
+          });
+        }
+      }
 
       if (threeRef.current?.renderer) {
         performanceRecorder.recordFrame(threeRef.current.renderer, s, rawDt);
@@ -876,6 +973,7 @@ export const WebHotGame: React.FC = () => {
             threeRef.current.ensurePostProcessing();
           }
         }}
+        onStartCoopGame={() => setShowCoopMenu(true)}
         onRestart={() => {
           const s = stateRef.current;
           if (s.gameMode === 'endless') {
@@ -895,6 +993,14 @@ export const WebHotGame: React.FC = () => {
           }
         }}
       />
+
+      {/* LAN CO-OP Menu Modal */}
+      {showCoopMenu && (
+        <CoopMenuHUD
+          onStartCoop={(isHost, roomCode) => startCoopMatch(isHost, roomCode)}
+          onBackToMenu={() => setShowCoopMenu(false)}
+        />
+      )}
 
       {/* Roleta de emotes — feedback visual enquanto o emote estiver ativo */}
       {gameState === 'playing' && activeEmoteDisplay !== 'none' && (

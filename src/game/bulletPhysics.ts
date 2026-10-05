@@ -51,6 +51,9 @@ export const updateBulletsAndCollisions = (ctx: UpdateBulletsContext) => {
 
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
+    if (b.prevPosition) {
+      b.prevPosition.copy(b.position);
+    }
     b.position.addScaledVector(b.direction, b.speed * gameDt);
     b.mesh.position.copy(b.position);
     b.life -= gameDt;
@@ -190,7 +193,9 @@ export const updateBulletsAndCollisions = (ctx: UpdateBulletsContext) => {
         const hitTorso = _staticRaycaster.ray.intersectsBox(_staticTorsoBox);
         const hitLegs = _staticRaycaster.ray.intersectsBox(_staticLegsBox);
 
-        if ((hitHead || hitTorso || hitLegs) && !godMode) {
+        const isNearPlayer = b.position.distanceToSquared(playerPos) < 0.49;
+
+        if ((hitHead || hitTorso || hitLegs || isNearPlayer) && !godMode) {
           hit = true;
           superhotSound.playPunchImpact(dtFactor);
           onPlayerHit();
