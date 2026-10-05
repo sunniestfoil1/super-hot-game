@@ -93,11 +93,12 @@ export const updatePlayerMovementAndWallrun = (ctx: PlayerMovementContext) => {
 
     vel.y -= 14.0 * gameDt;
 
-    if (keys.space && ctx.isGrounded) {
-      vel.y = 5.4;
+    // Salto realista (30% da altura do personagem = ~0.52m de elevação) apenas quando no chão
+    if (keys.space && ctx.isGrounded && !wallRun.isWallRunning) {
+      vel.y = 3.6;
       ctx.isGrounded = false;
       keys.space = false;
-      onActionKick(0.2);
+      onActionKick(0.25);
     }
   }
 
@@ -154,10 +155,13 @@ export const updatePlayerMovementAndWallrun = (ctx: PlayerMovementContext) => {
     }
   });
 
-  if (nextPos.y <= targetFloorY) {
+  // Apenas toca o chão e trava no piso se o jogador estiver caindo/descendo (vel.y <= 0)
+  if (vel.y <= 0 && nextPos.y <= targetFloorY) {
     nextPos.y = targetFloorY;
     vel.y = 0;
     ctx.isGrounded = true;
+  } else if (nextPos.y > targetFloorY + 0.05) {
+    ctx.isGrounded = false;
   }
 
   // 2. GLB MESH FACE RAYCASTING FOR WALLS, DOORS, WINDOWS & PILLARS WITH WALL SLIDING

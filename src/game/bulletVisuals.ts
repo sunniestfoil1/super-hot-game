@@ -1,26 +1,26 @@
 import * as THREE from 'three';
 import { createGlbBulletGeometry } from './geometryLoader';
 
-const TRAIL_CORE_COLOR = 0xff0033;
-const TRAIL_GLOW_COLOR = 0xff2244;
+const TRAIL_CORE_COLOR = 0xff002b;
+const TRAIL_GLOW_COLOR = 0xff0033;
 const UNIT_Y = new THREE.Vector3(0, 1, 0);
 
-const coreTrailGeo = new THREE.CylinderGeometry(0.008, 0.002, 1, 6, 1, true);
-const glowTrailGeo = new THREE.CylinderGeometry(0.024, 0.008, 1, 8, 1, true);
+const coreTrailGeo = new THREE.CylinderGeometry(0.012, 0.004, 1, 8, 1, true);
+const glowTrailGeo = new THREE.CylinderGeometry(0.028, 0.010, 1, 8, 1, true);
 
-// Singletons de alta performance para reutilização de shader/material
-const sharedBulletMaterial = new THREE.MeshStandardMaterial({
-  color: TRAIL_CORE_COLOR,
-  emissive: TRAIL_CORE_COLOR,
-  emissiveIntensity: 1.8,
-  roughness: 0.1,
-  metalness: 0.9,
+// Singletons de alta performance: Cabeça da bala PRETA FOSCA / METÁLICA (tamanho do dedo)
+const sharedBlackBulletMaterial = new THREE.MeshStandardMaterial({
+  color: 0x111115,
+  emissive: 0x050508,
+  emissiveIntensity: 0.1,
+  roughness: 0.4,
+  metalness: 0.7,
 });
 
 const sharedCoreTrailMat = new THREE.MeshBasicMaterial({
-  color: 0xffffff,
+  color: 0xff002b,
   transparent: true,
-  opacity: 0.95,
+  opacity: 1.0,
   side: THREE.DoubleSide,
   depthWrite: false,
 });
@@ -28,21 +28,21 @@ const sharedCoreTrailMat = new THREE.MeshBasicMaterial({
 const sharedGlowTrailMat = new THREE.MeshBasicMaterial({
   color: TRAIL_GLOW_COLOR,
   transparent: true,
-  opacity: 0.55,
+  opacity: 0.7,
   side: THREE.DoubleSide,
   depthWrite: false,
 });
 
-/** Bala usando o GLB low_poly_bullet com material compartilhado. */
+/** Bala preta compacta (tamanho do dedo do personagem) usando material preto fosco. */
 export function createBulletMesh(
   pos: THREE.Vector3,
   dir: THREE.Vector3,
-  scale = 0.32,
+  scale = 0.15,
   color = TRAIL_CORE_COLOR
 ): THREE.Mesh {
   const mesh = new THREE.Mesh(
     createGlbBulletGeometry(),
-    sharedBulletMaterial
+    sharedBlackBulletMaterial
   );
   mesh.scale.setScalar(scale);
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir);
@@ -50,17 +50,17 @@ export function createBulletMesh(
   return mesh;
 }
 
-/** Rastro de 2 Camadas com materiais compartilhados */
+/** Rastro de laser neon vermelho de 2 camadas atrás da bala preta */
 export function createBulletTrail(): THREE.Group {
   const group = new THREE.Group();
 
-  // Camada 1: Core fino de alta intensidade
+  // Camada 1: Core fino vermelho neon intenso
   const coreMesh = new THREE.Mesh(coreTrailGeo, sharedCoreTrailMat);
   coreMesh.name = 'trail-core';
   coreMesh.frustumCulled = false;
   group.add(coreMesh);
 
-  // Camada 2: Glow translúcido expandido para o Bloom
+  // Camada 2: Glow laser brilhante para o Bloom
   const glowMesh = new THREE.Mesh(glowTrailGeo, sharedGlowTrailMat);
   glowMesh.name = 'trail-glow';
   glowMesh.frustumCulled = false;
@@ -69,7 +69,7 @@ export function createBulletTrail(): THREE.Group {
   return group;
 }
 
-/** Posiciona e escala o rastro de 2 camadas atrás da bala com gradiente e afunilamento */
+/** Posiciona e escala o rastro de laser neon vermelho exatamente atrás da bala preta */
 export function updateBulletTrail(
   trail: THREE.Object3D,
   head: THREE.Vector3,
