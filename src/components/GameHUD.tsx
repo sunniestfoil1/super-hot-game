@@ -38,6 +38,7 @@ interface GameHUDProps {
   onStartGame: () => void;
   onStartEndlessGame: () => void;
   onStartSandboxGame: () => void;
+  onStartBenchmarkGame?: () => void;
   onRestart: () => void;
   onNextLevel: () => void;
   onLockPointer: () => void;
@@ -82,6 +83,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onStartGame,
   onStartEndlessGame,
   onStartSandboxGame,
+  onStartBenchmarkGame,
   onRestart,
   onLockPointer,
   onSelectLevel,
@@ -162,6 +164,16 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 <Eye className="w-5 h-5 fill-current" />
                 MATE TODOS 2 (EXPLORAÇÃO)
               </button>
+
+              {onStartBenchmarkGame && (
+                <button
+                  onClick={onStartBenchmarkGame}
+                  className="w-full py-4 bg-emerald-700 hover:bg-emerald-600 text-white font-black text-sm uppercase tracking-widest transition-colors flex items-center justify-center gap-3 cursor-pointer shadow-lg shadow-emerald-700/30 border border-emerald-400/40"
+                >
+                  <Activity className="w-5 h-5 fill-current animate-pulse" />
+                  🧪 BATERIA DE TESTES & BENCHMARK (5s)
+                </button>
+              )}
 
               <button
                 onClick={() => setShowConfig(true)}

@@ -65,8 +65,8 @@ export const initThreeScene = (container: HTMLDivElement): SceneSetupResult => {
   const dirLight = new THREE.DirectionalLight(0xfff8f0, 2.2);
   dirLight.position.set(10, 22, 4);
   dirLight.castShadow = true;
-  dirLight.shadow.mapSize.width = 4096;
-  dirLight.shadow.mapSize.height = 4096;
+  dirLight.shadow.mapSize.width = 2048;
+  dirLight.shadow.mapSize.height = 2048;
   dirLight.shadow.camera.near = 0.5;
   dirLight.shadow.camera.far = 80;
   dirLight.shadow.camera.left = -30;
@@ -78,18 +78,10 @@ export const initThreeScene = (container: HTMLDivElement): SceneSetupResult => {
   dirLight.shadow.radius = 1.5;
   scene.add(dirLight);
 
+  // Luz ambiente secundária de preenchimento (sem render pass de sombra redundante)
   const windowLight2 = new THREE.DirectionalLight(0xe8f0ff, 0.45);
   windowLight2.position.set(-14, 16, -6);
-  windowLight2.castShadow = true;
-  windowLight2.shadow.mapSize.width = 1024;
-  windowLight2.shadow.mapSize.height = 1024;
-  windowLight2.shadow.camera.near = 0.5;
-  windowLight2.shadow.camera.far = 60;
-  windowLight2.shadow.camera.left = -20;
-  windowLight2.shadow.camera.right = 20;
-  windowLight2.shadow.camera.top = 20;
-  windowLight2.shadow.camera.bottom = -20;
-  windowLight2.shadow.bias = -0.0003;
+  windowLight2.castShadow = false;
   scene.add(windowLight2);
 
   const fillLight = new THREE.DirectionalLight(0xfff0e0, 0.10);

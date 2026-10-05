@@ -8,9 +8,11 @@ import { updateEnemyAi } from './enemyAi';
 import { updatePlayerMovementAndWallrun } from './playerController';
 import { animatePlayerArms } from './firstPersonArms';
 import { shardPool } from './shatterEffect';
-import { replaySystem } from './replaySystem';
 import { superhotSound } from '../audio/SuperhotAudio';
 import { SceneSetupResult } from './sceneSetup';
+
+const _tempToW = new THREE.Vector3();
+const _tempCamDir = new THREE.Vector3();
 
 export interface GameLoopContext {
   rawDt: number;
@@ -47,6 +49,9 @@ export interface GameLoopContext {
     airborneWeapons: AirborneWeapon[];
     droppedWeapons: DroppedWeapon[];
     wallBoxes: THREE.Box3[];
+    physicsMs?: number;
+    renderMs?: number;
+    audioMs?: number;
   };
   sceneSetup: SceneSetupResult;
   godMode: boolean;
@@ -109,7 +114,6 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
     } else {
       s.targetDtFactor = 1.0;
       s.dtFactor = 1.0;
-      replaySystem.updatePlayback(rawDt, sceneSetup, s.pos, () => {});
     }
   } else {
     const baseIdleRate = 0.03;
@@ -171,7 +175,6 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
 
   // 3. Player Movement & Wallrun
   if (s.gameState === 'playing') {
-    replaySystem.recordTick(s, rawDt);
     updatePlayerMovementAndWallrun({
       keys: s.keys,
       pos: s.pos,
@@ -192,13 +195,13 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
 
     // Weapon Catch / Pickup prompt check (Arma no ar ou no chão apenas quando olhando na direção dela)
     let canCatchTarget = false;
-    const camDirVector = new THREE.Vector3();
-    camera.getWorldDirection(camDirVector);
+    camera.getWorldDirection(_tempCamDir);
 
     // 1. Armas no ar voando
-    for (const aw of s.airborneWeapons) {
-      const toW = aw.position.clone().sub(camera.position);
-      if (toW.length() < 3.4 && camDirVector.angleTo(toW) < 0.75) {
+    for (let awIdx = 0; awIdx < s.airborneWeapons.length; awIdx++) {
+      const aw = s.airborneWeapons[awIdx];
+      _tempToW.subVectors(aw.position, camera.position);
+      if (_tempToW.length() < 3.4 && _tempCamDir.angleTo(_tempToW) < 0.75) {
         canCatchTarget = true;
         break;
       }
@@ -206,10 +209,11 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
 
     // 2. Armas no chão (Apenas se o jogador estiver olhando para baixo na direção da arma)
     if (!canCatchTarget) {
-      for (const dw of s.droppedWeapons) {
-        const toFloorW = dw.position.clone().sub(camera.position);
-        const dist = toFloorW.length();
-        if (dist < 2.8 && camDirVector.angleTo(toFloorW) < 0.65) {
+      for (let dwIdx = 0; dwIdx < s.droppedWeapons.length; dwIdx++) {
+        const dw = s.droppedWeapons[dwIdx];
+        _tempToW.subVectors(dw.position, camera.position);
+        const dist = _tempToW.length();
+        if (dist < 2.8 && _tempCamDir.angleTo(_tempToW) < 0.65) {
           canCatchTarget = true;
           break;
         }
@@ -220,14 +224,16 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
 
     // Punch reach prompt check
     let inPunchReach = false;
-    const camDir = new THREE.Vector3();
-    camera.getWorldDirection(camDir);
 
     if (s.currentWeapon === null) {
-      for (const e of s.enemies) {
+      for (let eIdx = 0; eIdx < s.enemies.length; eIdx++) {
+        const e = s.enemies[eIdx];
         if (e.alive) {
-          const toE = e.position.clone().add(new THREE.Vector3(0, 1.1, 0)).sub(camera.position);
-          if (toE.length() < 2.5 && camDir.angleTo(toE) < 0.75) {
+          _tempToW.copy(e.position);
+          _tempToW.y += 1.1;
+          _tempToW.sub(camera.position);
+
+          if (_tempToW.length() < 2.5 && _tempCamDir.angleTo(_tempToW) < 0.75) {
             inPunchReach = true;
             break;
           }
@@ -239,11 +245,15 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
     // HOTSWITCH target acquisition check
     let canHotswitch = false;
     if (s.hotswitchCooldown <= 0) {
-      for (const e of s.enemies) {
+      for (let eIdx = 0; eIdx < s.enemies.length; eIdx++) {
+        const e = s.enemies[eIdx];
         if (e.alive) {
-          const toE = e.position.clone().add(new THREE.Vector3(0, 1.2, 0)).sub(camera.position);
-          const dist = toE.length();
-          if (dist > 1.5 && dist < 32.0 && camDir.angleTo(toE) < 0.35) {
+          _tempToW.copy(e.position);
+          _tempToW.y += 1.2;
+          _tempToW.sub(camera.position);
+
+          const dist = _tempToW.length();
+          if (dist > 1.5 && dist < 32.0 && _tempCamDir.angleTo(_tempToW) < 0.35) {
             canHotswitch = true;
             break;
           }
@@ -260,6 +270,8 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
       onHotswitchCooldownChange(s.hotswitchCooldown);
     }
   }
+
+  const tPhysicsStart = performance.now();
 
   // 4. Bullets Update & Collisions
   updateCombatVfx(scene, gameDt);
@@ -335,27 +347,27 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
     const prevZ = pos.z;
     pos.addScaledVector(shard.velocity, gameDt);
 
-    // Colisão com paredes: reverte o movimento horizontal e quica fraco
-    for (const box of s.wallBoxes) {
-      if (box.containsPoint(pos)) {
-        pos.x = prevX;
-        pos.z = prevZ;
-        shard.velocity.x *= -0.25;
-        shard.velocity.z *= -0.25;
-        break;
+    // Otimização Broadphase: Só testa parede se o estilhaço estiver em movimento e abaixo do teto
+    if (pos.y <= 4.0 && (shard.velocity.x * shard.velocity.x + shard.velocity.z * shard.velocity.z > 0.01)) {
+      for (let wIdx = 0; wIdx < s.wallBoxes.length; wIdx++) {
+        if (s.wallBoxes[wIdx].containsPoint(pos)) {
+          pos.x = prevX;
+          pos.z = prevZ;
+          shard.velocity.x *= -0.25;
+          shard.velocity.z *= -0.25;
+          break;
+        }
       }
     }
 
     if (pos.y <= 0.08) {
       pos.y = 0.08;
       shard.velocity.y = Math.abs(shard.velocity.y) > 0.8 ? -shard.velocity.y * 0.25 : 0;
-      // Atrito no chão para parar gradualmente
       const friction = Math.max(0, 1 - 4.5 * gameDt);
       shard.velocity.x *= friction;
       shard.velocity.z *= friction;
       shard.rotVelocity.multiplyScalar(Math.max(0, 1 - 4.0 * gameDt));
     } else {
-      // Ar sem travamento brusco (resistência do ar leve)
       const air = Math.max(0, 1 - 0.25 * gameDt);
       shard.velocity.x *= air;
       shard.velocity.z *= air;
@@ -368,11 +380,24 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
     }
   }
 
+  updateEmissiveDissolveGhosts(scene, gameDt);
+
+  s.physicsMs = performance.now() - tPhysicsStart;
+
+  const tAudioStart = performance.now();
+  superhotSound.updateTimeDilation(s.dtFactor);
+  s.audioMs = performance.now() - tAudioStart;
+
   // Atualiza uniformes da transição cinematográfica Construct / Sketch-to-Reality
   if (s.constructProgress < 1.0) {
     s.constructProgress = Math.min(1.0, s.constructProgress + rawDt * 0.95);
   }
 
+  // Accumulate WebGL render stats across all composer passes for accurate F8/F12 telemetry
+  renderer.info.autoReset = false;
+  renderer.info.reset();
+
+  const tRenderStart = performance.now();
   // Render direct WebGL for 'basica' preset or through post-processing composer for higher presets
   if (sceneSetup.ensurePostProcessing && !ctx.isBasicaPreset) {
     const post = sceneSetup.ensurePostProcessing();
@@ -384,5 +409,6 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
   } else {
     renderer.render(scene, camera);
   }
+  s.renderMs = performance.now() - tRenderStart;
 };
 

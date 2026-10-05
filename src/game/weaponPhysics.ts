@@ -15,6 +15,10 @@ interface UpdateAirborneWeaponsContext {
   spawnDroppedWeapon: (pos: THREE.Vector3, type: WeaponType, ammo: number, id: string) => void;
 }
 
+const _tempTarget = new THREE.Vector3();
+const _tempHitDir = new THREE.Vector3();
+const _tempFloorPos = new THREE.Vector3();
+
 export const updateAirborneWeapons = (ctx: UpdateAirborneWeaponsContext) => {
   const {
     airborneWeapons,
@@ -44,15 +48,20 @@ export const updateAirborneWeapons = (ctx: UpdateAirborneWeaponsContext) => {
     if (aw.isThrownByPlayer) {
       const isFragile = aw.type === 'ashtray' || aw.type === 'bottle';
 
-      for (const e of enemies) {
-        if (e.alive && aw.position.distanceTo(e.position.clone().add(new THREE.Vector3(0, 1.1, 0))) < 0.95) {
+      for (let eIdx = 0; eIdx < enemies.length; eIdx++) {
+        const e = enemies[eIdx];
+        _tempTarget.copy(e.position);
+        _tempTarget.y += 1.1;
+
+        if (e.alive && aw.position.distanceToSquared(_tempTarget) < 0.9025) {
           superhotSound.playPunchImpact(dtFactor);
           e.punchHitsReceived += 1;
           if (e.hasWeapon) {
             disarmEnemy(e, 4.5);
           }
           if (e.punchHitsReceived >= 2) {
-            shatterEnemy(e, aw.velocity.clone().normalize());
+            _tempHitDir.copy(aw.velocity).normalize();
+            shatterEnemy(e, _tempHitDir);
           } else {
             e.state = 'stunned';
             e.stunTimer = 3.5;
@@ -81,7 +90,8 @@ export const updateAirborneWeapons = (ctx: UpdateAirborneWeaponsContext) => {
         superhotSound.playGlassShatter(dtFactor);
       } else {
         // Falls or dropped gently without breaking
-        spawnDroppedWeapon(new THREE.Vector3(aw.position.x, 0.15, aw.position.z), aw.type, aw.ammo, `floor-${i}`);
+        _tempFloorPos.set(aw.position.x, 0.15, aw.position.z);
+        spawnDroppedWeapon(_tempFloorPos, aw.type, aw.ammo, `floor-${i}`);
       }
       scene.remove(aw.group);
       airborneWeapons.splice(i, 1);

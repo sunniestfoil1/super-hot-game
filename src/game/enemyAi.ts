@@ -1,4 +1,4 @@
-﻿import { spawnMuzzleFlashVfx } from './combatVfx';
+import { spawnMuzzleFlashVfx } from './combatVfx';
 import * as THREE from 'three';
 import { Enemy, Bullet } from './types';
 import { createGlbBulletGeometry } from './geometryLoader';
@@ -24,6 +24,24 @@ function stopEnemyAction(enemy: Enemy, fade: number) {
 }
 
 const UPDATE_ENEMY_AI_VERSION = 'v1';
+
+// Shared singletons to prevent WebGL shader compilation stutters and V8 GC freezes on enemy shots
+const sharedEnemyBulletMat = new THREE.MeshStandardMaterial({
+  color: 0xff0022,
+  emissive: 0xff0033,
+  emissiveIntensity: 1.5,
+  metalness: 0.85,
+  roughness: 0.2,
+});
+
+const _staticToPlayer = new THREE.Vector3();
+const _staticToPlayerDir = new THREE.Vector3();
+const _staticEnemyForward = new THREE.Vector3();
+
+const sharedEnemyTrailLineMat = new THREE.LineBasicMaterial({
+  color: 0xff2244,
+  linewidth: 2,
+});
 
 interface UpdateEnemyAiContext {
   enemy: Enemy;
@@ -104,11 +122,16 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
     return;
   }
 
-  // Vetor planar direto ao jogador (Navegação Linear Determinística)
-  const toPlayer = new THREE.Vector3().subVectors(playerPos, enemy.position);
-  toPlayer.y = 0;
-  const dist = toPlayer.length();
-  const toPlayerDir = toPlayer.clone().normalize();
+  // Vetor planar direto ao jogador (Navegação Linear Determinística sem alocação GC)
+  _staticToPlayer.subVectors(playerPos, enemy.position);
+  _staticToPlayer.y = 0;
+  const dist = _staticToPlayer.length();
+  
+  if (dist > 0.0001) {
+    _staticToPlayerDir.copy(_staticToPlayer).multiplyScalar(1 / dist);
+  } else {
+    _staticToPlayerDir.set(0, 0, 1);
+  }
 
   const prevBoxing = enemy.isBoxing;
   enemy.isBoxing = enemy.spottedPlayer && dist <= 3.0;
@@ -123,8 +146,8 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
   // ==========================================
   // DETECÇÃO VISUAL & REAÇÃO HUMANA PREVISÍVEL
   // ==========================================
-  const enemyForward = new THREE.Vector3(Math.sin(enemy.rotationY), 0, Math.cos(enemy.rotationY));
-  const viewAngleDot = enemyForward.dot(toPlayerDir);
+  _staticEnemyForward.set(Math.sin(enemy.rotationY), 0, Math.cos(enemy.rotationY));
+  const viewAngleDot = _staticEnemyForward.dot(_staticToPlayerDir);
   const inVisionCone = viewAngleDot > -0.1 || dist < 3.0; // Amplo campo de visão frontal
 
   // Audição: tiro disparado alerta imediatamente a presença
@@ -140,13 +163,9 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
     }
   }
 
-  if (enemy.mixer) {
-    enemy.mixer.update(rawDt);
-  }
-
   // Rotação suave e direta orientando o corpo ao jogador
   if (dist > 0.1) {
-    const desiredAngle = Math.atan2(toPlayer.x, toPlayer.z);
+    const desiredAngle = Math.atan2(_staticToPlayer.x, _staticToPlayer.z);
     let angleDiff = desiredAngle - enemy.rotationY;
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
@@ -220,7 +239,7 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
         enemy.rightForearm.rotation.x = -0.6 - legCos * 0.2;
       } else if (dist <= 1.35 && gameState === 'playing') {
         // Pursuit: Avança em linha reta até o jogador
-        const enemyNext = enemy.position.clone().addScaledVector(toPlayerDir, enemy.walkSpeed * 1.35 * gameDt);
+        const enemyNext = enemy.position.clone().addScaledVector(_staticToPlayerDir, enemy.walkSpeed * 1.35 * gameDt);
         let blocked = false;
         for (const box of wallBoxes) {
           if (
@@ -323,7 +342,7 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
           playEnemyAction(enemy, enemy.rifleRunClip, true, 0.25);
         }
         // Pursuit: Anda em linha reta até o alcance de tiro
-        const enemyNext = enemy.position.clone().addScaledVector(toPlayerDir, enemy.walkSpeed * gameDt);
+        const enemyNext = enemy.position.clone().addScaledVector(_staticToPlayerDir, enemy.walkSpeed * gameDt);
         let blocked = false;
         for (const box of wallBoxes) {
           if (
@@ -411,13 +430,7 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
 
             const pMesh = new THREE.Mesh(
               createGlbBulletGeometry(),
-              new THREE.MeshStandardMaterial({
-                color: 0xff0022,
-                emissive: 0xff0033,
-                emissiveIntensity: 1.6,
-                metalness: 0.85,
-                roughness: 0.2,
-              })
+              sharedEnemyBulletMat
             );
             pMesh.scale.set(0.6, 0.6, 0.6);
             pMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), pelletDir);
@@ -426,7 +439,7 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
 
             const trailLine = new THREE.Line(
               new THREE.BufferGeometry().setFromPoints([spawnPos.clone(), spawnPos.clone().addScaledVector(pelletDir, -1.0)]),
-              new THREE.LineBasicMaterial({ color: 0xff2244, linewidth: 2 })
+              sharedEnemyTrailLineMat
             );
             scene.add(trailLine);
 
@@ -458,13 +471,7 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
 
             const uMesh = new THREE.Mesh(
               createGlbBulletGeometry(),
-              new THREE.MeshStandardMaterial({
-                color: 0xff0022,
-                emissive: 0xff0033,
-                emissiveIntensity: 1.5,
-                metalness: 0.85,
-                roughness: 0.2,
-              })
+              sharedEnemyBulletMat
             );
             uMesh.scale.set(0.7, 0.7, 0.7);
             uMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), burstDir);
@@ -474,7 +481,7 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
 
             const trailLine = new THREE.Line(
               new THREE.BufferGeometry().setFromPoints([uSpawn.clone(), uSpawn.clone().addScaledVector(burstDir, -1.2)]),
-              new THREE.LineBasicMaterial({ color: 0xff2244, linewidth: 2 })
+              sharedEnemyTrailLineMat
             );
             scene.add(trailLine);
 
@@ -498,13 +505,7 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
 
           const bMesh = new THREE.Mesh(
             createGlbBulletGeometry(),
-            new THREE.MeshStandardMaterial({
-              color: 0xff0022,
-              emissive: 0xff0033,
-              emissiveIntensity: 1.5,
-              metalness: 0.85,
-              roughness: 0.2,
-            })
+            sharedEnemyBulletMat
           );
           bMesh.scale.set(0.75, 0.75, 0.75);
           bMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), shootDir);
@@ -513,7 +514,7 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
 
           const trailLine = new THREE.Line(
             new THREE.BufferGeometry().setFromPoints([spawnPos.clone(), spawnPos.clone().addScaledVector(shootDir, -1.2)]),
-            new THREE.LineBasicMaterial({ color: 0xff2244, linewidth: 2 })
+            sharedEnemyTrailLineMat
           );
           scene.add(trailLine);
 

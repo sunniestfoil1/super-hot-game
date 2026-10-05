@@ -27,10 +27,11 @@ const sharedShardMaterial = createShardMaterial();
 const sharedTetrahedronGeo = new THREE.TetrahedronGeometry(1);
 const sharedBoxGeo = new THREE.BoxGeometry(1, 0.6, 0.8);
 
-const MAX_POOL_SHARDS = 140;
+const MAX_POOL_SHARDS = 120; // Pool estendida de alta velocidade para estilhaços hiper-densos
 
 class GlassShardPoolManager {
   private pool: GlassShard[] = [];
+  private freeIndices: number[] = [];
   private initialized = false;
 
   public initPool(scene: THREE.Scene) {
@@ -49,6 +50,7 @@ class GlassShardPoolManager {
         rotVelocity: new THREE.Vector3(),
         life: 0,
       });
+      this.freeIndices.push(i);
     }
   }
 
@@ -62,11 +64,9 @@ class GlassShardPoolManager {
     life: number
   ): GlassShard {
     this.initPool(scene);
-    let shard = this.pool.find((s) => !s.mesh.visible);
-    if (!shard) {
-      // Re-use oldest active shard if pool exhausted
-      shard = this.pool[0];
-    }
+    const freeIdx = this.freeIndices.pop();
+    const shard = freeIdx !== undefined ? this.pool[freeIdx] : this.pool[0];
+
     shard.mesh.position.copy(pos);
     shard.mesh.scale.copy(scale);
     shard.mesh.rotation.copy(rot);
@@ -80,13 +80,19 @@ class GlassShardPoolManager {
   public recycleShard(shard: GlassShard) {
     shard.mesh.visible = false;
     shard.life = 0;
+    const idx = this.pool.indexOf(shard);
+    if (idx !== -1 && !this.freeIndices.includes(idx)) {
+      this.freeIndices.push(idx);
+    }
   }
 
   public clearAll() {
-    this.pool.forEach((s) => {
-      s.mesh.visible = false;
-      s.life = 0;
-    });
+    this.freeIndices = [];
+    for (let i = 0; i < this.pool.length; i++) {
+      this.pool[i].mesh.visible = false;
+      this.pool[i].life = 0;
+      this.freeIndices.push(i);
+    }
   }
 }
 
@@ -105,9 +111,9 @@ export const spawnEnemyShatterShards = (
   enemy.root.updateMatrixWorld(true);
 
   const parts: THREE.Mesh[] = [
-    enemy.head, enemy.neck, enemy.chest, enemy.waist,
-    enemy.leftUpperArm, enemy.leftForearm, enemy.rightUpperArm, enemy.rightForearm,
-    enemy.leftThigh, enemy.leftCalf, enemy.rightThigh, enemy.rightCalf,
+    enemy.head, enemy.chest, enemy.waist,
+    enemy.leftUpperArm, enemy.rightUpperArm,
+    enemy.leftThigh, enemy.rightThigh,
   ].filter((p) => p && p.parent);
 
   const hitFlat = new THREE.Vector3(hitDirection.x, 0, hitDirection.z).normalize();
@@ -120,7 +126,7 @@ export const spawnEnemyShatterShards = (
     bb.getSize(size);
     part.getWorldScale(worldScale);
     const dim = Math.max(0.1, Math.min(size.x * worldScale.x, size.y * worldScale.y, size.z * worldScale.z));
-    const pieces = part === enemy.head || part === enemy.chest ? 7 : 4;
+    const pieces = part === enemy.head || part === enemy.chest ? 5 : 3;
 
     for (let j = 0; j < pieces; j++) {
       const local = new THREE.Vector3(
@@ -129,7 +135,7 @@ export const spawnEnemyShatterShards = (
         bb.min.z + Math.random() * size.z
       );
       const worldPos = part.localToWorld(local);
-      const s = dim * (0.28 + Math.random() * 0.3);
+      const s = dim * (0.35 + Math.random() * 0.35);
       const isTetra = j % 2 === 0;
 
       const scale = new THREE.Vector3(s, isTetra ? s : s * 0.6, isTetra ? s : s * 0.8);
@@ -151,7 +157,8 @@ export const spawnEnemyShatterShards = (
         (Math.random() - 0.5) * 18
       );
 
-      const shard = shardPool.obtainShard(scene, worldPos, scale, rot, vel, rotVel, 9.0);
+      // Vida útil de 3.5s (reduzida de 9s) para otimização extrema sem acúmulo de físicas
+      const shard = shardPool.obtainShard(scene, worldPos, scale, rot, vel, rotVel, 3.5);
       shards.push(shard);
     }
   });
@@ -160,7 +167,7 @@ export const spawnEnemyShatterShards = (
 };
 
 /**
- * Creates 12 leg shards when a specific limb is broken
+ * Creates 6 leg shards when a specific limb is broken
  */
 export const spawnLimbShatterShards = (
   scene: THREE.Scene,
@@ -169,7 +176,7 @@ export const spawnLimbShatterShards = (
   shardPool.initPool(scene);
   const shards: GlassShard[] = [];
 
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 6; i++) {
     const size = 0.08 + Math.random() * 0.12;
     const isTetra = i % 2 === 0;
     const pos = new THREE.Vector3(
@@ -182,7 +189,7 @@ export const spawnLimbShatterShards = (
     const vel = new THREE.Vector3((Math.random() - 0.5) * 3, 1.5 + Math.random() * 2, (Math.random() - 0.5) * 3);
     const rotVel = new THREE.Vector3((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12);
 
-    const shard = shardPool.obtainShard(scene, pos, scale, rot, vel, rotVel, 6.0);
+    const shard = shardPool.obtainShard(scene, pos, scale, rot, vel, rotVel, 3.0);
     shards.push(shard);
   }
 

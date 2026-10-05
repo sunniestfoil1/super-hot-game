@@ -32,6 +32,8 @@ import { PerformanceRecorderHUD } from '../components/PerformanceRecorderHUD';
 import { collisionDebugger } from './collisionDebugger';
 import { replaySystem, ReplayCameraMode } from './replaySystem';
 import { ReplayHUD } from '../components/ReplayHUD';
+import { benchmarkRunner } from './benchmarkRunner';
+import { BenchmarkHUD } from '../components/BenchmarkHUD';
 
 export const WebHotGame: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -334,7 +336,7 @@ export const WebHotGame: React.FC = () => {
     s.isPunching = false;
     s.currentEmote = 'none';
     s.emoteProgress = 0;
-    s.constructProgress = 0.0; // Inicia a transição Matrix Construct / Sketch-to-Reality
+    s.constructProgress = 1.0; // Instantly realistic gameplay, zero pre-match cartoon sketch filter
     s.wallRun.isWallRunning = false;
     s.wallRun.tiltAngle = 0;
 
@@ -615,6 +617,10 @@ export const WebHotGame: React.FC = () => {
         performanceRecorder.recordFrame(threeRef.current.renderer, s, rawDt);
       }
 
+      if (threeRef.current && benchmarkRunner.getIsActive()) {
+        benchmarkRunner.updateTick(threeRef.current.scene, s.enemies, s.glassShards);
+      }
+
       if (collisionDebugger.getIsVisible()) {
         collisionDebugger.updatePlayerPos(s.pos);
       }
@@ -841,6 +847,16 @@ export const WebHotGame: React.FC = () => {
             threeRef.current.ensurePostProcessing();
           }
         }}
+        onStartBenchmarkGame={() => {
+          const s = stateRef.current;
+          s.gameMode = 'sandbox';
+          setGameMode('sandbox');
+          setGameState('playing');
+          loadLevel(0);
+          if (threeRef.current) {
+            benchmarkRunner.startBenchmark(threeRef.current.scene, s.enemies, s.glassShards);
+          }
+        }}
         onStartSandboxGame={() => {
           const s = stateRef.current;
           s.gameMode = 'sandbox';
@@ -891,22 +907,16 @@ export const WebHotGame: React.FC = () => {
         }} />
       )}
 
-      {/* Replay Cinemático 1.0x Realtime pós-fase */}
+      {/* Level Clear Mantra Overlay */}
       {gameState === 'cleared' && (
         <ReplayHUD
           mantraWord={mantraWord}
-          cameraMode={replayCamMode}
-          onToggleCamera={() => {
-            replaySystem.toggleCameraMode();
-            setReplayCamMode(replaySystem.getCameraMode());
-          }}
           onSkipReplay={() => {
             if (mantraIntervalRef.current) {
               clearTimeout(mantraIntervalRef.current);
               mantraIntervalRef.current = null;
             }
             superhotSound.stopMantra();
-            replaySystem.stopPlayback();
             setDeathWhiteout(1.0);
             requestAnimationFrame(() => {
               loadLevel(currentLevelIndex + 1);
@@ -921,6 +931,9 @@ export const WebHotGame: React.FC = () => {
         graphicsPreset={gameSettings.preset}
         webglRenderer={threeRef.current?.renderer ? 'WebGL' : undefined}
       />
+
+      {/* Benchmark Automático (Menu TESTAR) */}
+      <BenchmarkHUD />
     </div>
   );
 };

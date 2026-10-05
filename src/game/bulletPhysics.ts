@@ -20,6 +20,18 @@ interface UpdateBulletsContext {
   onPlayerHit: () => void;
 }
 
+// Module-level static singletons to eliminate GC memory allocations per frame
+const _staticRaycaster = new THREE.Raycaster();
+const _staticTorsoBox = new THREE.Box3();
+const _staticLimbBuffer: THREE.Mesh[] = [];
+const _staticLegsBox = new THREE.Box3();
+const _tempBulletMovement = new THREE.Vector3();
+const _tempRayDir = new THREE.Vector3();
+const _tempHeadCenter = new THREE.Vector3();
+const _tempBoxCenter = new THREE.Vector3();
+const _torsoSize = new THREE.Vector3(0.44, 0.55, 0.30);
+const _legsSize = new THREE.Vector3(0.38, 0.95, 0.28);
+
 export const updateBulletsAndCollisions = (ctx: UpdateBulletsContext) => {
   const {
     bullets,
@@ -50,30 +62,49 @@ export const updateBulletsAndCollisions = (ctx: UpdateBulletsContext) => {
     }
 
     let hit = false;
-    for (const box of wallBoxes) {
-      if (box.containsPoint(b.position)) {
+    for (let w = 0; w < wallBoxes.length; w++) {
+      if (wallBoxes[w].containsPoint(b.position)) {
         hit = true;
-        spawnBulletImpactVfx(scene, b.position, b.direction.clone().negate());
+        _tempRayDir.copy(b.direction).negate();
+        spawnBulletImpactVfx(scene, b.position, _tempRayDir);
         break;
       }
     }
 
     // Player bullet hits enemy (Real polygonal triangle raycasting)
     if (!b.isEnemy) {
-      const bulletMovement = b.position.clone().sub(b.prevPosition);
-      const moveDist = bulletMovement.length();
+      _tempBulletMovement.subVectors(b.position, b.prevPosition);
+      const moveDist = _tempBulletMovement.length();
       if (moveDist > 0.0001) {
-        const rayDir = bulletMovement.clone().normalize();
-        const hitRay = new THREE.Raycaster(b.prevPosition, rayDir, 0, moveDist + 0.15);
+        _tempRayDir.copy(_tempBulletMovement).normalize();
+        _staticRaycaster.set(b.prevPosition, _tempRayDir);
+        _staticRaycaster.near = 0;
+        _staticRaycaster.far = moveDist + 0.15;
 
-        for (const e of enemies) {
+        for (let eIdx = 0; eIdx < enemies.length; eIdx++) {
+          const e = enemies[eIdx];
           if (e.alive) {
-            const limbMeshes = [
-              e.head, e.neck, e.chest, e.waist,
-              e.leftUpperArm, e.leftForearm, e.rightUpperArm, e.rightForearm,
-              e.leftThigh, e.leftCalf, e.rightThigh, e.rightCalf,
-            ];
-            const intersects = hitRay.intersectObjects(limbMeshes, false);
+            // Broadphase Distance Check: Skip detailed raycast if bullet is far from enemy center
+            const maxReach = moveDist + 2.2;
+            if (b.position.distanceToSquared(e.position) > maxReach * maxReach) {
+              continue;
+            }
+
+            _staticLimbBuffer.length = 0;
+            if (e.head) _staticLimbBuffer.push(e.head);
+            if (e.neck) _staticLimbBuffer.push(e.neck);
+            if (e.chest) _staticLimbBuffer.push(e.chest);
+            if (e.waist) _staticLimbBuffer.push(e.waist);
+            if (e.leftUpperArm) _staticLimbBuffer.push(e.leftUpperArm);
+            if (e.leftForearm) _staticLimbBuffer.push(e.leftForearm);
+            if (e.rightUpperArm) _staticLimbBuffer.push(e.rightUpperArm);
+            if (e.rightForearm) _staticLimbBuffer.push(e.rightForearm);
+            if (e.leftThigh) _staticLimbBuffer.push(e.leftThigh);
+            if (e.leftCalf) _staticLimbBuffer.push(e.leftCalf);
+            if (e.rightThigh) _staticLimbBuffer.push(e.rightThigh);
+            if (e.rightCalf) _staticLimbBuffer.push(e.rightCalf);
+
+            const intersects = _staticRaycaster.intersectObjects(_staticLimbBuffer, false);
             if (intersects.length > 0) {
               hit = true;
               const hitPart = intersects[0].object;
@@ -85,7 +116,6 @@ export const updateBulletsAndCollisions = (ctx: UpdateBulletsContext) => {
               ) {
                 shatterLimb(e, hitPart === e.leftCalf || hitPart === e.leftThigh);
               } else {
-                // Qualquer outro hit (ou pellet de escopeta) mata de vez
                 shatterEnemy(e, b.direction);
               }
               break;
@@ -98,10 +128,11 @@ export const updateBulletsAndCollisions = (ctx: UpdateBulletsContext) => {
 
     // Audio cue: bullet passing close to enemy
     if (!b.isEnemy) {
-      for (const e of enemies) {
+      for (let eIdx = 0; eIdx < enemies.length; eIdx++) {
+        const e = enemies[eIdx];
         if (e.alive && b.position.distanceTo(e.position) < 3.8 && !e.spottedPlayer) {
           e.alertSoundTimer = 3.5;
-          e.lastHeardPos = playerPos.clone();
+          e.lastHeardPos = playerPos;
           e.alertState = 'alerted';
           e.reactionTimer = Math.max(e.reactionTimer, e.reactionTime * 0.7);
         }
@@ -125,8 +156,8 @@ export const updateBulletsAndCollisions = (ctx: UpdateBulletsContext) => {
 
     // Bullet blocked by thrown weapon
     if (!hit && b.isEnemy) {
-      for (const aw of airborneWeapons) {
-        if (b.position.distanceTo(aw.position) < 0.45) {
+      for (let aIdx = 0; aIdx < airborneWeapons.length; aIdx++) {
+        if (b.position.distanceTo(airborneWeapons[aIdx].position) < 0.45) {
           hit = true;
           superhotSound.playPunchImpact(dtFactor);
           break;
@@ -136,51 +167,33 @@ export const updateBulletsAndCollisions = (ctx: UpdateBulletsContext) => {
 
     // Hitbox Anatômica Completa do Jogador (Cabeça + Torso + Pernas)
     if (b.isEnemy && gameState === 'playing') {
-      const enemyBulletMovement = b.position.clone().sub(b.prevPosition);
-      const enemyMoveDist = enemyBulletMovement.length();
+      _tempBulletMovement.subVectors(b.position, b.prevPosition);
+      const enemyMoveDist = _tempBulletMovement.length();
 
-      // Volumes Anatômicos Físicos do Jogador
-      const headCenter = playerPos.clone(); // Olhos/Cabeça (y = playerPos.y = 1.70m)
-      const torsoBox = new THREE.Box3().setFromCenterAndSize(
-        playerPos.clone().setY(playerPos.y - 0.45),
-        new THREE.Vector3(0.44, 0.55, 0.30)
-      );
-      const legsBox = new THREE.Box3().setFromCenterAndSize(
-        playerPos.clone().setY(playerPos.y - 1.20),
-        new THREE.Vector3(0.38, 0.95, 0.28)
-      );
+      _tempHeadCenter.copy(playerPos);
+      _tempBoxCenter.copy(playerPos);
+      _tempBoxCenter.y -= 0.45;
+      _staticTorsoBox.setFromCenterAndSize(_tempBoxCenter, _torsoSize);
+
+      _tempBoxCenter.copy(playerPos);
+      _tempBoxCenter.y -= 1.20;
+      _staticLegsBox.setFromCenterAndSize(_tempBoxCenter, _legsSize);
 
       if (enemyMoveDist > 0.0001) {
-        const enemyRayDir = enemyBulletMovement.clone().normalize();
-        const enemyHitRay = new THREE.Raycaster(b.prevPosition, enemyRayDir, 0, enemyMoveDist + 0.35);
+        _tempRayDir.copy(_tempBulletMovement).normalize();
+        _staticRaycaster.set(b.prevPosition, _tempRayDir);
+        _staticRaycaster.near = 0;
+        _staticRaycaster.far = enemyMoveDist + 0.35;
 
-        // Teste 1: Esfera da Cabeça (raio 0.20m)
-        const headHitDist = enemyHitRay.ray.distanceToPoint(headCenter);
+        const headHitDist = _staticRaycaster.ray.distanceToPoint(_tempHeadCenter);
         const hitHead = headHitDist < 0.20;
+        const hitTorso = _staticRaycaster.ray.intersectsBox(_staticTorsoBox);
+        const hitLegs = _staticRaycaster.ray.intersectsBox(_staticLegsBox);
 
-        // Teste 2 e 3: Caixas 3D do Torso e Pernas
-        const hitTorso = enemyHitRay.ray.intersectsBox(torsoBox);
-        const hitLegs = enemyHitRay.ray.intersectsBox(legsBox);
-
-        if (hitHead || hitTorso || hitLegs) {
+        if ((hitHead || hitTorso || hitLegs) && !godMode) {
           hit = true;
-          if (!godMode) {
-            onPlayerHit();
-          } else {
-            superhotSound.playWeaponCatch();
-          }
-        }
-      } else {
-        const hitHead = b.position.distanceTo(headCenter) < 0.20;
-        const hitTorso = torsoBox.containsPoint(b.position);
-        const hitLegs = legsBox.containsPoint(b.position);
-        if (hitHead || hitTorso || hitLegs) {
-          hit = true;
-          if (!godMode) {
-            onPlayerHit();
-          } else {
-            superhotSound.playWeaponCatch();
-          }
+          superhotSound.playPunchImpact(dtFactor);
+          onPlayerHit();
         }
       }
     }
@@ -192,4 +205,3 @@ export const updateBulletsAndCollisions = (ctx: UpdateBulletsContext) => {
     }
   }
 };
-

@@ -1,6 +1,6 @@
 /**
- * SUPERHOT Post-Processing
- * Motion Blur, CA, Bloom, Film Pass, and Quality Preset Controls
+ * SUPERHOT Post-Processing Engine
+ * Ultra-Optimized Single-Pass Composite Shader Architecture
  */
 
 import * as THREE from 'three';
@@ -13,41 +13,7 @@ import { FilmPass } from 'three/examples/jsm/postprocessing/FilmPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { SSAOPass } from 'three/examples/jsm/postprocessing/SSAOPass.js';
-import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
-import { HueSaturationShader } from 'three/examples/jsm/shaders/HueSaturationShader.js';
-import { BrightnessContrastShader } from 'three/examples/jsm/shaders/BrightnessContrastShader.js';
-
-const SharpenShader = {
-  name: 'SharpenShader',
-  uniforms: {
-    tDiffuse: { value: null as THREE.Texture | null },
-    resolution: { value: new THREE.Vector2(1280, 720) },
-    sharpness: { value: 0.28 },
-  },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse;
-    uniform vec2 resolution;
-    uniform float sharpness;
-    varying vec2 vUv;
-    void main() {
-      vec2 texel = 1.0 / resolution;
-      vec4 center = texture2D(tDiffuse, vUv);
-      vec4 top    = texture2D(tDiffuse, vUv + vec2(0.0,  texel.y));
-      vec4 bottom = texture2D(tDiffuse, vUv + vec2(0.0, -texel.y));
-      vec4 left   = texture2D(tDiffuse, vUv + vec2(-texel.x, 0.0));
-      vec4 right  = texture2D(tDiffuse, vUv + vec2( texel.x, 0.0));
-      vec4 sharpened = center + sharpness * (4.0 * center - top - bottom - left - right);
-      gl_FragColor = clamp(sharpened, 0.0, 1.0);
-    }
-  `,
-};
+import { GameSettings } from './settingsManager';
 
 /** High performance motion blur for camera/player velocity */
 export const MotionBlurShader = {
@@ -85,43 +51,27 @@ export const MotionBlurShader = {
   `,
 };
 
-/** Chromatic aberration ONLY at screen edges (not center). */
-const EdgeRGBShiftShader = {
-  name: 'EdgeRGBShiftShader',
+/**
+ * Unified High-Performance Superhot Composite Shader
+ * Fuses Hue/Sat, Brightness/Contrast, Sharpen, Vignette, and Edge Chromatic Aberration
+ * into ONE SINGLE full-screen render pass, saving 5 full-screen render target swaps per frame!
+ */
+export const SuperhotCompositeShader = {
+  name: 'SuperhotCompositeShader',
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
-    amount: { value: 0.0025 },
-    angle: { value: 0.0 },
-  },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse;
-    uniform float amount;
-    uniform float angle;
-    varying vec2 vUv;
-    void main() {
-      float dist = length(vUv - vec2(0.5));
-      float edge = smoothstep(0.28, 0.72, dist);
-      vec2 offset = amount * edge * vec2(cos(angle), sin(angle));
-      float r = texture2D(tDiffuse, vUv + offset).r;
-      float g = texture2D(tDiffuse, vUv).g;
-      float b = texture2D(tDiffuse, vUv - offset).b;
-      gl_FragColor = vec4(r, g, b, 1.0);
-    }
-  `,
-};
-
-/** Matrix Construct / Sketch-To-Reality Loading Transition Shader */
-const ConstructLoadingShader = {
-  name: 'ConstructLoadingShader',
-  uniforms: {
-    tDiffuse: { value: null as THREE.Texture | null },
+    resolution: { value: new THREE.Vector2(1280, 720) },
+    sharpness: { value: 0.15 },
+    sharpenEnabled: { value: 1.0 },
+    saturation: { value: -0.08 },
+    brightness: { value: 0.01 },
+    contrast: { value: 0.06 },
+    vignetteOffset: { value: 1.25 },
+    vignetteDarkness: { value: 0.45 },
+    vignetteEnabled: { value: 1.0 },
+    rgbShiftAmount: { value: 0.0008 },
+    rgbShiftAngle: { value: 0.0 },
+    rgbShiftEnabled: { value: 0.0 },
     progress: { value: 1.0 },
     time: { value: 0.0 },
   },
@@ -134,34 +84,67 @@ const ConstructLoadingShader = {
   `,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
-    uniform float progress;
-    uniform float time;
+    uniform vec2 resolution;
+    uniform float sharpness;
+    uniform float sharpenEnabled;
+    uniform float saturation;
+    uniform float brightness;
+    uniform float contrast;
+    uniform float vignetteOffset;
+    uniform float vignetteDarkness;
+    uniform float vignetteEnabled;
+    uniform float rgbShiftAmount;
+    uniform float rgbShiftAngle;
+    uniform float rgbShiftEnabled;
     varying vec2 vUv;
 
-    void main() {
-      vec4 sceneColor = texture2D(tDiffuse, vUv);
+    vec3 applyHueSat(vec3 rgb, float sat) {
+      float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+      return mix(vec3(luma), rgb, 1.0 + sat);
+    }
 
-      if (progress >= 0.999) {
-        gl_FragColor = sceneColor;
-        return;
+    void main() {
+      vec2 texel = 1.0 / resolution;
+      vec4 color = texture2D(tDiffuse, vUv);
+
+      // 1. Edge RGB Chromatic Aberration
+      if (rgbShiftEnabled > 0.5 && rgbShiftAmount > 0.0) {
+        float dist = length(vUv - vec2(0.5));
+        float edge = smoothstep(0.28, 0.72, dist);
+        vec2 offset = rgbShiftAmount * edge * vec2(cos(rgbShiftAngle), sin(rgbShiftAngle));
+        float r = texture2D(tDiffuse, vUv + offset).r;
+        float g = color.g;
+        float b = texture2D(tDiffuse, vUv - offset).b;
+        color.rgb = vec3(r, g, b);
       }
 
-      vec2 texel = vec2(0.001, 0.001);
-      vec4 cTop    = texture2D(tDiffuse, vUv + vec2(0.0,  texel.y));
-      vec4 cBottom = texture2D(tDiffuse, vUv + vec2(0.0, -texel.y));
-      vec4 cLeft   = texture2D(tDiffuse, vUv + vec2(-texel.x, 0.0));
-      vec4 cRight  = texture2D(tDiffuse, vUv + vec2( texel.x, 0.0));
+      // 2. Sharpening Filter
+      if (sharpenEnabled > 0.5 && sharpness > 0.0) {
+        vec4 top    = texture2D(tDiffuse, vUv + vec2(0.0,  texel.y));
+        vec4 bottom = texture2D(tDiffuse, vUv + vec2(0.0, -texel.y));
+        vec4 left   = texture2D(tDiffuse, vUv + vec2(-texel.x, 0.0));
+        vec4 right  = texture2D(tDiffuse, vUv + vec2( texel.x, 0.0));
+        color = clamp(color + sharpness * (4.0 * color - top - bottom - left - right), 0.0, 1.0);
+      }
 
-      float edge = length((4.0 * sceneColor - cTop - cBottom - cLeft - cRight).rgb);
-      float outline = smoothstep(0.06, 0.20, edge);
+      // 3. Hue / Saturation
+      if (abs(saturation) > 0.001) {
+        color.rgb = applyHueSat(color.rgb, saturation);
+      }
 
-      vec3 constructWhite = vec3(0.95, 0.95, 0.96);
-      vec3 sketchLine = mix(constructWhite, vec3(0.20, 0.22, 0.26), outline);
+      // 4. Brightness & Contrast
+      if (abs(brightness) > 0.001 || abs(contrast) > 0.001) {
+        color.rgb = (color.rgb - 0.5) * (1.0 + contrast) + 0.5 + brightness;
+      }
 
-      float renderPhase = smoothstep(0.0, 0.95, progress);
-      vec3 finalColor = mix(sketchLine, sceneColor.rgb, renderPhase);
+      // 5. Vignette Shading
+      if (vignetteEnabled > 0.5) {
+        vec2 uv = (vUv - 0.5) * vignetteOffset;
+        float vecDist = length(uv);
+        color.rgb = mix(color.rgb, vec3(0.0), smoothstep(0.5, 1.5, vecDist * vignetteDarkness));
+      }
 
-      gl_FragColor = vec4(finalColor, 1.0);
+      gl_FragColor = color;
     }
   `,
 };
@@ -176,6 +159,7 @@ export interface PostProcessingResult {
   vignettePass: ShaderPass;
   rgbShiftPass: ShaderPass;
   constructPass: ShaderPass;
+  compositePass: ShaderPass;
   motionBlurPass: ShaderPass;
 }
 
@@ -209,11 +193,11 @@ export const initPostProcessing = (
   motionBlurPass.uniforms['enabled'].value = 0.0;
   composer.addPass(motionBlurPass);
 
-  // Bloom
+  // Bloom Pass
   const bloomPass = new UnrealBloomPass(new THREE.Vector2(width, height), 0.18, 0.35, 0.88);
   composer.addPass(bloomPass);
 
-  // DOF
+  // DOF Bokeh Pass
   const bokehPass = new BokehPass(scene, camera, {
     focus: 10.0,
     aperture: 0.000015,
@@ -221,38 +205,14 @@ export const initPostProcessing = (
   });
   composer.addPass(bokehPass);
 
-  const hueSatPass = new ShaderPass(HueSaturationShader);
-  hueSatPass.uniforms['hue'].value = 0.0;
-  hueSatPass.uniforms['saturation'].value = -0.08;
-  composer.addPass(hueSatPass);
-
-  const brightnessContrastPass = new ShaderPass(BrightnessContrastShader);
-  brightnessContrastPass.uniforms['brightness'].value = 0.01;
-  brightnessContrastPass.uniforms['contrast'].value = 0.06;
-  composer.addPass(brightnessContrastPass);
-
-  const sharpenPass = new ShaderPass(SharpenShader);
-  sharpenPass.uniforms['resolution'].value.set(width, height);
-  sharpenPass.uniforms['sharpness'].value = 0.15;
-  composer.addPass(sharpenPass);
-
-  const vignettePass = new ShaderPass(VignetteShader);
-  vignettePass.uniforms['offset'].value = 1.25;
-  vignettePass.uniforms['darkness'].value = 0.45;
-  composer.addPass(vignettePass);
-
-  const rgbShiftPass = new ShaderPass(EdgeRGBShiftShader);
-  rgbShiftPass.uniforms['amount'].value = 0.0008;
-  rgbShiftPass.uniforms['angle'].value = 0.0;
-  composer.addPass(rgbShiftPass);
-
+  // Film Pass
   const filmPass = new FilmPass(0.005, false);
   composer.addPass(filmPass);
 
-  const constructPass = new ShaderPass(ConstructLoadingShader);
-  constructPass.uniforms['progress'].value = 1.0;
-  constructPass.uniforms['time'].value = 0.0;
-  composer.addPass(constructPass);
+  // Unified High-Performance Superhot Composite Shader Pass (Fuses 5 passes into 1)
+  const compositePass = new ShaderPass(SuperhotCompositeShader);
+  compositePass.uniforms['resolution'].value.set(width, height);
+  composer.addPass(compositePass);
 
   composer.addPass(new OutputPass());
 
@@ -262,15 +222,14 @@ export const initPostProcessing = (
     gtaoPass: aoPass,
     bloomPass,
     filmPass,
-    sharpenPass,
-    vignettePass,
-    rgbShiftPass,
-    constructPass,
+    sharpenPass: compositePass,
+    vignettePass: compositePass,
+    rgbShiftPass: compositePass,
+    constructPass: compositePass,
+    compositePass,
     motionBlurPass,
   };
 };
-
-import { GameSettings } from './settingsManager';
 
 export const resizePostProcessing = (
   result: PostProcessingResult,
@@ -279,7 +238,9 @@ export const resizePostProcessing = (
 ): void => {
   result.composer.setSize(width, height);
   result.bloomPass.setSize(width, height);
-  result.sharpenPass.uniforms['resolution'].value.set(width, height);
+  if (result.compositePass) {
+    result.compositePass.uniforms['resolution'].value.set(width, height);
+  }
 };
 
 export const applyPostProcessingPreset = (
@@ -303,10 +264,8 @@ export const applyPostProcessingPreset = (
   if (result.filmPass) {
     result.filmPass.enabled = p === 'ultra' || p === 'ultra_max';
   }
-  if (result.sharpenPass) {
-    result.sharpenPass.enabled = p === 'alta' || p === 'ultra' || p === 'ultra_max';
-  }
-  if (result.rgbShiftPass) {
-    result.rgbShiftPass.enabled = p === 'ultra_max';
+  if (result.compositePass) {
+    result.compositePass.uniforms['sharpenEnabled'].value = (p === 'alta' || p === 'ultra' || p === 'ultra_max') ? 1.0 : 0.0;
+    result.compositePass.uniforms['rgbShiftEnabled'].value = p === 'ultra_max' ? 1.0 : 0.0;
   }
 };

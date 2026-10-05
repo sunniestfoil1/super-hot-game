@@ -212,12 +212,23 @@ export const animatePlayerArms = (ctx: AnimatePlayerArmsContext) => {
   }
 
   if (showWeapon) {
-    const pistolMesh = playerWeaponGroup.getObjectByName('weapon-pistol');
-    const shotgunMesh = playerWeaponGroup.getObjectByName('weapon-shotgun');
-    const rifleMesh = playerWeaponGroup.getObjectByName('weapon-rifle');
-    const bottleMesh = playerWeaponGroup.getObjectByName('weapon-bottle');
-    const knifeMesh = playerWeaponGroup.getObjectByName('weapon-knife');
-    const ashtrayMesh = playerWeaponGroup.getObjectByName('weapon-ashtray');
+    if (!playerWeaponGroup.userData._meshCache) {
+      playerWeaponGroup.userData._meshCache = {
+        pistol: playerWeaponGroup.getObjectByName('weapon-pistol'),
+        shotgun: playerWeaponGroup.getObjectByName('weapon-shotgun'),
+        rifle: playerWeaponGroup.getObjectByName('weapon-rifle'),
+        bottle: playerWeaponGroup.getObjectByName('weapon-bottle'),
+        knife: playerWeaponGroup.getObjectByName('weapon-knife'),
+        ashtray: playerWeaponGroup.getObjectByName('weapon-ashtray'),
+      };
+    }
+    const cache = playerWeaponGroup.userData._meshCache;
+    const pistolMesh = cache.pistol;
+    const shotgunMesh = cache.shotgun;
+    const rifleMesh = cache.rifle;
+    const bottleMesh = cache.bottle;
+    const knifeMesh = cache.knife;
+    const ashtrayMesh = cache.ashtray;
 
     if (pistolMesh) pistolMesh.visible = weaponType === 'pistol';
     if (shotgunMesh) shotgunMesh.visible = weaponType === 'shotgun';

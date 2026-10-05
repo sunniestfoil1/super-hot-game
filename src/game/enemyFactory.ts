@@ -109,6 +109,10 @@ function loadClips(): Promise<void> {
   return clipsPromise;
 }
 
+export function preloadEnemyClips(): Promise<void> {
+  return loadClips();
+}
+
 export const spawnEnemyEntity = async (
   scene: THREE.Scene,
   enemyCfg: LevelConfig['enemies'][0],

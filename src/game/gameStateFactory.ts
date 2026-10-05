@@ -17,7 +17,7 @@ export function createInitialGameState() {
     targetDtFactor: 0.03,
     actionKickTimer: 0,
     clearSlowTimer: 0,
-    constructProgress: 0.0, // 0.0 = Construct Vazio Branco puro, transiciona até 1.0 (Renderização)
+    constructProgress: 1.0, // Instantly realistic, zero pre-match cartoon sketch filter
     mouseDeltaMag: 0,
     hotswitchCooldown: 0,
     targetedEnemyId: null as string | null,

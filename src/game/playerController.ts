@@ -35,20 +35,28 @@ const rayDirs: THREE.Vector3[] = [
   new THREE.Vector3(-0.707, 0, -0.707),
 ];
 
+const _staticMoveVec = new THREE.Vector3();
+const _staticAxisY = new THREE.Vector3(0, 1, 0);
+const _staticDownDir = new THREE.Vector3(0, -1, 0);
+const _staticNextPos = new THREE.Vector3();
+const _staticRayOrigin = new THREE.Vector3();
+const _staticWorldNormal = new THREE.Vector3();
+const _staticHorizNormal = new THREE.Vector3();
+
 export const updatePlayerMovementAndWallrun = (ctx: PlayerMovementContext) => {
   const { keys, pos, vel, yaw, wallBoxes, wallRun, gameDt, rawDt, isMoving, onActionKick } = ctx;
 
   const moveSpeed = 4.8;
-  const moveVec = new THREE.Vector3();
-  if (keys.w) moveVec.z -= 1;
-  if (keys.s) moveVec.z += 1;
-  if (keys.a) moveVec.x -= 1;
-  if (keys.d) moveVec.x += 1;
+  _staticMoveVec.set(0, 0, 0);
+  if (keys.w) _staticMoveVec.z -= 1;
+  if (keys.s) _staticMoveVec.z += 1;
+  if (keys.a) _staticMoveVec.x -= 1;
+  if (keys.d) _staticMoveVec.x += 1;
 
-  if (moveVec.lengthSq() > 0) {
-    moveVec.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-    vel.x = moveVec.x * moveSpeed;
-    vel.z = moveVec.z * moveSpeed;
+  if (_staticMoveVec.lengthSq() > 0) {
+    _staticMoveVec.normalize().applyAxisAngle(_staticAxisY, yaw);
+    vel.x = _staticMoveVec.x * moveSpeed;
+    vel.z = _staticMoveVec.z * moveSpeed;
   } else {
     vel.x *= Math.pow(0.7, rawDt * 60);
     vel.z *= Math.pow(0.7, rawDt * 60);
@@ -102,7 +110,7 @@ export const updatePlayerMovementAndWallrun = (ctx: PlayerMovementContext) => {
     }
   }
 
-  const nextPos = pos.clone().addScaledVector(vel, gameDt);
+  _staticNextPos.copy(pos).addScaledVector(vel, gameDt);
 
   // 1. DYNAMIC FLOOR & STAIR CLIMBING (Apenas superfícies horizontais e degraus válidos)
   const currentFeetY = pos.y - 1.7;
@@ -111,19 +119,19 @@ export const updatePlayerMovementAndWallrun = (ctx: PlayerMovementContext) => {
 
   const glbMeshes = getActiveGlbMeshes();
   if (glbMeshes.length > 0) {
-    const rayOrigin = new THREE.Vector3(nextPos.x, pos.y + 0.5, nextPos.z);
-    downRaycaster.set(rayOrigin, new THREE.Vector3(0, -1, 0));
+    _staticRayOrigin.set(_staticNextPos.x, pos.y + 0.5, _staticNextPos.z);
+    downRaycaster.set(_staticRayOrigin, _staticDownDir);
     downRaycaster.far = 4.5;
 
     const floorHits = downRaycaster.intersectObjects(glbMeshes, false);
     for (const hit of floorHits) {
       if (!hit.face) continue;
 
-      // Normal da superfície em coordenadas do mundo
-      const worldNormal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
+      // Normal da superfície em coordenadas do mundo (sem clone)
+      _staticWorldNormal.copy(hit.face.normal).transformDirection(hit.object.matrixWorld).normalize();
 
       // Só aceita como chão se a superfície for predominantemente HORIZONTAL (normal.y > 0.55)
-      if (worldNormal.y > 0.55) {
+      if (_staticWorldNormal.y > 0.55) {
         const hitFeetY = hit.point.y;
         // Só permite subir se a nova altura do chão for no máximo maxStepHeight (0.45m) acima dos pés atuais
         if (hitFeetY <= currentFeetY + maxStepHeight && hitFeetY >= currentFeetY - 2.5) {
@@ -138,12 +146,13 @@ export const updatePlayerMovementAndWallrun = (ctx: PlayerMovementContext) => {
   }
 
   // Fallback para caixas de colisão de plataformas estruturais (apenas se forem pisos/plataformas finas)
-  wallBoxes.forEach((box) => {
+  for (let bIdx = 0; bIdx < wallBoxes.length; bIdx++) {
+    const box = wallBoxes[bIdx];
     const isFloorBox = box.max.y - box.min.y < 0.45; // Apenas caixas de piso
-    if (!isFloorBox) return; // Ignora paredes verticais/altas no cálculo de chão
+    if (!isFloorBox) continue; // Ignora paredes verticais/altas no cálculo de chão
 
-    const inX = nextPos.x + 0.35 >= box.min.x && nextPos.x - 0.35 <= box.max.x;
-    const inZ = nextPos.z + 0.35 >= box.min.z && nextPos.z - 0.35 <= box.max.z;
+    const inX = _staticNextPos.x + 0.35 >= box.min.x && _staticNextPos.x - 0.35 <= box.max.x;
+    const inZ = _staticNextPos.z + 0.35 >= box.min.z && _staticNextPos.z - 0.35 <= box.max.z;
     if (inX && inZ) {
       const topFeetY = box.max.y;
       if (topFeetY <= currentFeetY + maxStepHeight && topFeetY >= currentFeetY - 1.5) {
@@ -153,14 +162,14 @@ export const updatePlayerMovementAndWallrun = (ctx: PlayerMovementContext) => {
         }
       }
     }
-  });
+  }
 
   // Apenas toca o chão e trava no piso se o jogador estiver caindo/descendo (vel.y <= 0)
-  if (vel.y <= 0 && nextPos.y <= targetFloorY) {
-    nextPos.y = targetFloorY;
+  if (vel.y <= 0 && _staticNextPos.y <= targetFloorY) {
+    _staticNextPos.y = targetFloorY;
     vel.y = 0;
     ctx.isGrounded = true;
-  } else if (nextPos.y > targetFloorY + 0.05) {
+  } else if (_staticNextPos.y > targetFloorY + 0.05) {
     ctx.isGrounded = false;
   }
 
@@ -170,11 +179,13 @@ export const updatePlayerMovementAndWallrun = (ctx: PlayerMovementContext) => {
   if (glbMeshes.length > 0) {
     const bodyCheckHeights = [pos.y - 1.2, pos.y - 0.5];
 
-    for (const checkY of bodyCheckHeights) {
-      const rayOrigin = new THREE.Vector3(nextPos.x, checkY, nextPos.z);
+    for (let hIdx = 0; hIdx < bodyCheckHeights.length; hIdx++) {
+      const checkY = bodyCheckHeights[hIdx];
+      _staticRayOrigin.set(_staticNextPos.x, checkY, _staticNextPos.z);
 
-      for (const dir of rayDirs) {
-        horizontalRaycaster.set(rayOrigin, dir);
+      for (let dIdx = 0; dIdx < rayDirs.length; dIdx++) {
+        const dir = rayDirs[dIdx];
+        horizontalRaycaster.set(_staticRayOrigin, dir);
         horizontalRaycaster.far = pRad + 0.15;
 
         const wallHits = horizontalRaycaster.intersectObjects(glbMeshes, false);
@@ -182,19 +193,19 @@ export const updatePlayerMovementAndWallrun = (ctx: PlayerMovementContext) => {
           const hit = wallHits[0];
           if (hit.distance < pRad && hit.face) {
             // Normal da face atingida em coordenadas mundiais
-            const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
+            _staticWorldNormal.copy(hit.face.normal).transformDirection(hit.object.matrixWorld).normalize();
 
-            // Repulsa EXCLUSIVAMENTE horizontal no plano X/Z (impede a parede de empurrar o jogador para cima!)
-            const horizNormal = new THREE.Vector3(normal.x, 0, normal.z);
-            if (horizNormal.lengthSq() > 0.001) {
-              horizNormal.normalize();
+            // Repulsa EXCLUSIVAMENTE horizontal no plano X/Z
+            _staticHorizNormal.set(_staticWorldNormal.x, 0, _staticWorldNormal.z);
+            if (_staticHorizNormal.lengthSq() > 0.001) {
+              _staticHorizNormal.normalize();
               const penetration = pRad - hit.distance;
-              nextPos.addScaledVector(horizNormal, penetration);
+              _staticNextPos.addScaledVector(_staticHorizNormal, penetration);
 
               // WALL SLIDING: remove a componente de velocidade perpendicular à parede
-              const normalVel = vel.dot(horizNormal);
+              const normalVel = vel.dot(_staticHorizNormal);
               if (normalVel < 0) {
-                vel.sub(horizNormal.clone().multiplyScalar(normalVel));
+                vel.addScaledVector(_staticHorizNormal, -normalVel);
               }
             }
           }
@@ -212,35 +223,35 @@ export const updatePlayerMovementAndWallrun = (ctx: PlayerMovementContext) => {
     if (box.max.y - box.min.y < 0.4) return;
     if (playerFeetY >= box.max.y - 0.05 || playerHeadY <= box.min.y) return;
 
-    const isOverlappingX = nextPos.x + pRad > box.min.x && nextPos.x - pRad < box.max.x;
-    const isOverlappingZ = nextPos.z + pRad > box.min.z && nextPos.z - pRad < box.max.z;
+    const isOverlappingX = _staticNextPos.x + pRad > box.min.x && _staticNextPos.x - pRad < box.max.x;
+    const isOverlappingZ = _staticNextPos.z + pRad > box.min.z && _staticNextPos.z - pRad < box.max.z;
 
     if (isOverlappingX && isOverlappingZ) {
-      const penXMin = Math.abs((nextPos.x + pRad) - box.min.x);
-      const penXMax = Math.abs(box.max.x - (nextPos.x - pRad));
-      const penZMin = Math.abs((nextPos.z + pRad) - box.min.z);
-      const penZMax = Math.abs(box.max.z - (nextPos.z - pRad));
+      const penXMin = Math.abs((_staticNextPos.x + pRad) - box.min.x);
+      const penXMax = Math.abs(box.max.x - (_staticNextPos.x - pRad));
+      const penZMin = Math.abs((_staticNextPos.z + pRad) - box.min.z);
+      const penZMax = Math.abs(box.max.z - (_staticNextPos.z - pRad));
 
       const minPenX = Math.min(penXMin, penXMax);
       const minPenZ = Math.min(penZMin, penZMax);
 
       if (minPenX < minPenZ) {
         if (penXMin < penXMax) {
-          nextPos.x = box.min.x - pRad;
+          _staticNextPos.x = box.min.x - pRad;
         } else {
-          nextPos.x = box.max.x + pRad;
+          _staticNextPos.x = box.max.x + pRad;
         }
         vel.x = 0;
       } else {
         if (penZMin < penZMax) {
-          nextPos.z = box.min.z - pRad;
+          _staticNextPos.z = box.min.z - pRad;
         } else {
-          nextPos.z = box.max.z + pRad;
+          _staticNextPos.z = box.max.z + pRad;
         }
         vel.z = 0;
       }
     }
   });
 
-  pos.copy(nextPos);
+  pos.copy(_staticNextPos);
 };
