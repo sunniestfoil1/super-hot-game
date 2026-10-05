@@ -143,17 +143,52 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
     enemy.mixer.update(rawDt);
   }
 
+const _losRay = new THREE.Ray();
+const _losHit = new THREE.Vector3();
+const _enemyEyePos = new THREE.Vector3();
+const _playerHeadPos = new THREE.Vector3();
+
+function checkLineOfSight(enemyPos: THREE.Vector3, playerPos: THREE.Vector3, wallBoxes: THREE.Box3[]): boolean {
+  _enemyEyePos.copy(enemyPos).add(new THREE.Vector3(0, 1.5, 0));
+  _playerHeadPos.copy(playerPos).add(new THREE.Vector3(0, 1.5, 0));
+
+  const dir = new THREE.Vector3().subVectors(_playerHeadPos, _enemyEyePos);
+  const dist = dir.length();
+  if (dist < 0.05) return true;
+  dir.normalize();
+
+  _losRay.origin.copy(_enemyEyePos);
+  _losRay.direction.copy(dir);
+
+  for (let i = 0; i < wallBoxes.length; i++) {
+    const box = wallBoxes[i];
+    if (box.max.y - box.min.y < 0.6) continue;
+
+    const hit = _losRay.intersectBox(box, _losHit);
+    if (hit) {
+      const hitDist = _enemyEyePos.distanceTo(hit);
+      if (hitDist < dist - 0.25) {
+        return false; // Wall blocks Line of Sight!
+      }
+    }
+  }
+  return true;
+}
+
   // ==========================================
   // DETECÇÃO VISUAL & REAÇÃO HUMANA PREVISÍVEL
   // ==========================================
   _staticEnemyForward.set(Math.sin(enemy.rotationY), 0, Math.cos(enemy.rotationY));
   const viewAngleDot = _staticEnemyForward.dot(_staticToPlayerDir);
-  const inVisionCone = viewAngleDot > -0.1 || dist < 3.0; // Amplo campo de visão frontal
+  const hasLos = checkLineOfSight(enemy.position, playerPos, wallBoxes);
+  const inVisionCone = (viewAngleDot > -0.1 || dist < 3.0) && hasLos;
 
   // Audição: tiro disparado alerta imediatamente a presença
   if (enemy.alertSoundTimer > 0) {
     enemy.alertSoundTimer -= gameDt;
-    enemy.spottedPlayer = true;
+    if (hasLos) {
+      enemy.spottedPlayer = true;
+    }
   }
 
   if (inVisionCone) {
@@ -161,6 +196,9 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
     if (enemy.reactionTimer >= enemy.reactionTime) {
       enemy.spottedPlayer = true;
     }
+  } else if (!hasLos) {
+    enemy.spottedPlayer = false;
+    enemy.reactionTimer = 0;
   }
 
   // Rotação suave e direta orientando o corpo ao jogador
@@ -394,8 +432,8 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
         playEnemyAction(enemy, enemy.rifleAimIdleClip, true, 0.25);
       }
 
-      // --- DISPARO EM INTERVALO DE TEMPO FIXO E PREVISÍVEL ---
-      if (enemy.hasWeapon && enemy.shootCooldown <= 0 && dist < 24.0 && gameState === 'playing') {
+      // --- DISPARO EM INTERVALO DE TEMPO COM ALEATORIEDADE E REQUERIMENTO DE LINHA DE VISÃO (LOS) ---
+      if (enemy.hasWeapon && enemy.shootCooldown <= 0 && dist < 24.0 && gameState === 'playing' && hasLos && enemy.spottedPlayer) {
         enemy.rightUpperArm.rotation.x += 0.35; // Recuo visual
 
         // Animação de tiro de rifle se disponível
@@ -418,7 +456,7 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
         if (isEnemyShotgun) {
           // Escopeta Inimiga: Leque cônico simultâneo de 6 projéteis físicos vermelhos
           superhotSound.playShotgunBlast(dtFactor);
-          enemy.shootCooldown = 3.2; // Cadência longa
+          enemy.shootCooldown = 2.8 + Math.random() * 1.5; // Cadência com variação humana individual
 
           for (let p = 0; p < 6; p++) {
             const spreadAngle = 0.18;
@@ -459,7 +497,7 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
         } else if (isEnemyUzi) {
           // Uzi Inimiga: Rajada de 2 a 3 balas com dispersão dinâmica
           superhotSound.playEnemyGunshot(dtFactor);
-          enemy.shootCooldown = 1.4;
+          enemy.shootCooldown = 0.8 + Math.random() * 0.8;
 
           for (let u = 0; u < 2; u++) {
             const uziSpread = 0.05 * (u + 1); // Dispersão dinâmica crescente
@@ -499,9 +537,9 @@ export const updateEnemyAi = (ctx: UpdateEnemyAiContext) => {
             });
           }
         } else {
-          // Pistola Inimiga: Tiro direto determinístico
+          // Pistola Inimiga: Tiro direto determinístico com variação individual
           superhotSound.playEnemyGunshot(dtFactor);
-          enemy.shootCooldown = 2.4;
+          enemy.shootCooldown = 1.4 + Math.random() * 1.4;
 
           const bMesh = new THREE.Mesh(
             createGlbBulletGeometry(),
