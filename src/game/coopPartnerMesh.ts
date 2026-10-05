@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { CoopPlayerData } from './coopNetwork';
-import { createGlbBulletGeometry } from './geometryLoader';
 
 export interface CoopPartnerMesh {
   group: THREE.Group;
@@ -13,31 +12,24 @@ export interface CoopPartnerMesh {
   weaponMesh: THREE.Mesh;
 }
 
-const partnerMatHost = new THREE.MeshStandardMaterial({
-  color: 0x00e5ff,
-  emissive: 0x0088cc,
-  emissiveIntensity: 0.8,
-  roughness: 0.2,
+// Material Preto Fosco Metálico (Sleek Pitch Black SUPERHOT Player Shadow)
+const partnerMatBlack = new THREE.MeshStandardMaterial({
+  color: 0x111115,
+  emissive: 0x151520,
+  emissiveIntensity: 0.2,
+  roughness: 0.3,
   metalness: 0.8,
 });
 
-const partnerMatClient = new THREE.MeshStandardMaterial({
-  color: 0x00ff88,
-  emissive: 0x00cc66,
-  emissiveIntensity: 0.8,
-  roughness: 0.2,
-  metalness: 0.8,
-});
-
-export function spawnCoopPartnerMesh(scene: THREE.Scene, isHostPartner: boolean): CoopPartnerMesh {
+export function spawnCoopPartnerMesh(scene: THREE.Scene, isHostPartner?: boolean): CoopPartnerMesh {
   const group = new THREE.Group();
-  const mat = isHostPartner ? partnerMatHost : partnerMatClient;
+  const mat = partnerMatBlack;
 
   // Head
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.22), mat);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.24), mat);
   head.position.set(0, 1.62, 0);
 
-  // Chest
+  // Chest / Torso
   const chest = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.65, 0.25), mat);
   chest.position.set(0, 1.15, 0);
 
@@ -50,18 +42,18 @@ export function spawnCoopPartnerMesh(scene: THREE.Scene, isHostPartner: boolean)
 
   // Legs
   const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.75, 0.14), mat);
-  leftLeg.position.set(-0.16, 0.40, 0);
+  leftLeg.position.set(-0.16, 0.38, 0);
 
   const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.75, 0.14), mat);
-  rightLeg.position.set(0.16, 0.40, 0);
+  rightLeg.position.set(0.16, 0.38, 0);
 
-  // Weapon
+  // Weapon Mesh (Pistol)
   const weaponMesh = new THREE.Mesh(
     new THREE.BoxGeometry(0.08, 0.12, 0.35),
-    new THREE.MeshBasicMaterial({ color: 0x111115 })
+    new THREE.MeshBasicMaterial({ color: 0x22222a })
   );
-  weaponMesh.position.set(0.32, 0.95, -0.2);
-  weaponMesh.visible = false;
+  weaponMesh.position.set(0.28, 1.05, -0.25);
+  weaponMesh.visible = true;
 
   group.add(head, chest, leftArm, rightArm, leftLeg, rightLeg, weaponMesh);
   scene.add(group);
@@ -79,23 +71,17 @@ export function spawnCoopPartnerMesh(scene: THREE.Scene, isHostPartner: boolean)
 }
 
 export function updateCoopPartnerMesh(partner: CoopPartnerMesh, state: CoopPlayerData, gameDt: number) {
-  const targetPos = new THREE.Vector3(...state.pos);
-  partner.group.position.lerp(targetPos, Math.min(1.0, gameDt * 25.0));
-  partner.group.rotation.y = THREE.MathUtils.lerp(partner.group.rotation.y, state.yaw, Math.min(1.0, gameDt * 25.0));
+  // Posição no chão: a posição y do estado é a altura dos olhos (1.7m).
+  // Subtraímos 1.7m para ancorar os pés exatamente no solo (Y = 0.0) sem flutuar no ar!
+  const targetPos = new THREE.Vector3(
+    state.pos[0],
+    Math.max(0.0, state.pos[1] - 1.7),
+    state.pos[2]
+  );
+
+  partner.group.position.lerp(targetPos, Math.min(1.0, gameDt * 28.0));
+  partner.group.rotation.y = THREE.MathUtils.lerp(partner.group.rotation.y, state.yaw, Math.min(1.0, gameDt * 28.0));
   partner.head.rotation.x = state.pitch;
 
   partner.weaponMesh.visible = state.currentWeapon !== null;
-
-  if (state.isMoving) {
-    const legWalk = Math.sin(performance.now() * 0.012) * 0.4;
-    partner.leftLeg.rotation.x = legWalk;
-    partner.rightLeg.rotation.x = -legWalk;
-    partner.leftArm.rotation.x = -legWalk * 0.8;
-    partner.rightArm.rotation.x = legWalk * 0.8;
-  } else {
-    partner.leftLeg.rotation.x = 0;
-    partner.rightLeg.rotation.x = 0;
-    partner.leftArm.rotation.x = 0;
-    partner.rightArm.rotation.x = 0;
-  }
 }

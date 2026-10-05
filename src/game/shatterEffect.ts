@@ -195,3 +195,33 @@ export const spawnLimbShatterShards = (
 
   return shards;
 };
+
+/**
+  Creates black glass particle explosion when player dies in CO-OP / Campaign
+ */
+export const spawnPlayerShatterShards = (
+  scene: THREE.Scene,
+  playerPos: THREE.Vector3
+): GlassShard[] => {
+  shardPool.initPool(scene);
+  const shards: GlassShard[] = [];
+
+  for (let i = 0; i < 24; i++) {
+    const size = 0.08 + Math.random() * 0.14;
+    const isTetra = i % 2 === 0;
+    const pos = new THREE.Vector3(
+      playerPos.x + (Math.random() - 0.5) * 0.4,
+      playerPos.y - 0.5 + Math.random() * 1.0,
+      playerPos.z + (Math.random() - 0.5) * 0.4
+    );
+    const scale = new THREE.Vector3(size, isTetra ? size : size * 0.6, isTetra ? size : size * 0.8);
+    const rot = new THREE.Euler(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+    const vel = new THREE.Vector3((Math.random() - 0.5) * 5, 2.0 + Math.random() * 3.5, (Math.random() - 0.5) * 5);
+    const rotVel = new THREE.Vector3((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16);
+
+    const shard = shardPool.obtainShard(scene, pos, scale, rot, vel, rotVel, 3.0);
+    shards.push(shard);
+  }
+
+  return shards;
+};

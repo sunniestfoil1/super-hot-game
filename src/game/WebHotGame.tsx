@@ -7,6 +7,7 @@ import { GameHUD } from '../components/GameHUD';
 import { BloodSplatterHUD } from '../components/BloodSplatterHUD';
 import { createEnemyMaterials, applyEnemyMaterial } from './geometryLoader';
 import { executeEnemyLimbShatter, executeEnemyFullShatter } from './enemyDestructionController';
+import { spawnPlayerShatterShards } from './shatterEffect';
 import { resetLevelEntities } from './levelLifecycle';
 import { spawnEnemyEntity } from './enemyFactory';
 import { animatePlayerArms } from './firstPersonArms';
@@ -283,6 +284,12 @@ export const WebHotGame: React.FC = () => {
     setDeathWhiteout(1.0);
     setGameState('gameover');
     superhotSound.playPlayerHit();
+
+    if (threeRef.current) {
+      const pShards = spawnPlayerShatterShards(threeRef.current.scene, s.pos);
+      s.glassShards.push(...pShards);
+    }
+
     if (document.pointerLockElement) document.exitPointerLock();
     setTimeout(() => setDeathWhiteout(0), 450);
   }, []);
