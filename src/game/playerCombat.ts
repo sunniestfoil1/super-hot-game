@@ -163,25 +163,16 @@ export const firePlayerGuns = (params: FireWeaponParams) => {
       pushBullet(`p-pellet-${Date.now()}-${i}`, spawnPos.clone(), spreadDir, 0.26, 3.2, 1.0, true);
     }
   } else if (isRifle) {
-    // Uzi: rajada alinhada perfeitamente à mira com expansão simétrica por disparo
-    const burstCount = Math.min(4, ammo);
-    if (!infiniteAmmo && burstCount > 1) {
-      onAmmoChange(ammo - burstCount);
-    }
-    onCooldownChange(0.2);
+    // Mini Uzi SMG: Cadência rápida automática (1 bala individual por tiro em sequência)
+    onCooldownChange(0.09);
     superhotSound.playGunshot(dtFactor);
-    onRecoil(0.2);
-
-    for (let bIdx = 0; bIdx < burstCount; bIdx++) {
-      const bloom = 0.005 + bIdx * 0.010;
-      const burstDir = aimDir.clone().add(new THREE.Vector3(
-        (Math.random() - 0.5) * bloom,
-        (Math.random() - 0.5) * bloom,
-        (Math.random() - 0.5) * bloom
-      )).normalize();
-      const bSpawnPos = spawnPos.clone().addScaledVector(aimDir, -bIdx * 1.1);
-      pushBullet(`p-uzi-${Date.now()}-${bIdx}`, bSpawnPos, burstDir, 0.28, 4.0, 1.3);
-    }
+    const bloom = 0.014;
+    const spreadDir = aimDir.clone().add(new THREE.Vector3(
+      (Math.random() - 0.5) * bloom,
+      (Math.random() - 0.5) * bloom,
+      (Math.random() - 0.5) * bloom
+    )).normalize();
+    pushBullet(`p-uzi-${Date.now()}`, spawnPos.clone(), spreadDir, 0.15, 4.0, 1.2);
   } else {
     onCooldownChange(0.42);
     superhotSound.playGunshot(dtFactor);
