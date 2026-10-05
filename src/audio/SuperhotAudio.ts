@@ -74,8 +74,17 @@ export class SuperhotAudio {
     this.masterGain.gain.setTargetAtTime(Math.max(0, Math.min(1, v)) * 0.85, this.ctx.currentTime, 0.05);
   }
 
+  public clearEchoes() {
+    if (this.ctx && this.delayFeedback) {
+      const now = this.ctx.currentTime;
+      this.delayFeedback.gain.cancelScheduledValues(now);
+      this.delayFeedback.gain.setValueAtTime(0, now);
+    }
+  }
+
   public stopAll() {
     this.stopMantra();
+    this.clearEchoes();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
     }
@@ -101,13 +110,9 @@ export class SuperhotAudio {
     const targetFreq = Math.max(160, Math.pow(dtFactor, 0.7) * 14000);
     this.masterFilter.frequency.setTargetAtTime(targetFreq, now, 0.08);
 
-    // Increase delay echo in slow motion
-    const targetFeedback = THREE_LERP(0.55, 0.15, dtFactor);
-    this.delayFeedback.gain.setTargetAtTime(targetFeedback, now, 0.1);
-
-    // Drone pitch deepens as time halts — removido (sem ruído contínuo)
-
-    // Heartbeat removido
+    // Increase delay echo in slow motion, but disable when stationary/dead (dtFactor < 0.05) to prevent looping gunshot echoes
+    const targetFeedback = dtFactor < 0.05 ? 0.0 : THREE_LERP(0.18, 0.05, dtFactor);
+    this.delayFeedback.gain.setTargetAtTime(targetFeedback, now, 0.05);
   }
 
   /**
@@ -357,6 +362,7 @@ export class SuperhotAudio {
     if (!this.enabled) return;
     this.init();
     if (!this.ctx) return;
+    this.clearEchoes();
 
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
