@@ -1,4 +1,5 @@
 import { updateCombatVfx } from './combatVfx';
+import { updateEmissiveDissolveGhosts } from './emissiveDissolveEffect';
 import * as THREE from 'three';
 import { Bullet, Enemy, GlassShard, AirborneWeapon, DroppedWeapon } from './types';
 import { updateBulletsAndCollisions } from './bulletPhysics';
@@ -262,6 +263,7 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
 
   // 4. Bullets Update & Collisions
   updateCombatVfx(scene, gameDt);
+  updateEmissiveDissolveGhosts(scene, gameDt);
   updateBulletsAndCollisions({
     bullets: s.bullets,
     enemies: s.enemies,

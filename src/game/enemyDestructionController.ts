@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Enemy, GlassShard } from './types';
 import { spawnEnemyShatterShards, spawnLimbShatterShards } from './shatterEffect';
+import { spawnEnemyEmissiveDissolveGhost } from './emissiveDissolveEffect';
 import { superhotSound } from '../audio/SuperhotAudio';
 
 export interface EnemyDestructionParams {
@@ -44,6 +45,10 @@ export function executeEnemyFullShatter(
   if (!enemy.alive) return;
 
   enemy.alive = false;
+
+  // Spawns Matrix Emissive Dissolve Silhouette Ghost
+  spawnEnemyEmissiveDissolveGhost(scene, enemy);
+
   scene.remove(enemy.root);
 
   superhotSound.playGlassShatter(dtFactor);
