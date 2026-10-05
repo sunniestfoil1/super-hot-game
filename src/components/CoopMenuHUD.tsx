@@ -155,12 +155,12 @@ export const CoopMenuHUD: React.FC<CoopMenuHUDProps> = ({ onStartCoop, onBackToM
             <div className="flex items-center gap-2">
               <span className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-amber-500'}`} />
               <span className="font-bold uppercase text-slate-300">
-                {isConnected ? 'REDE LAN CONECTADA (14ms)' : 'AGUARDANDO CONEXÃO DO 2º JOGADOR...'}
+                {isConnected ? 'WEBRTC P2P CONECTADO (LAN)' : 'AGUARDANDO CONEXÃO P2P NA REDE...'}
               </span>
             </div>
             <div className="flex items-center gap-1.5 font-mono text-slate-400">
               <Wifi className="w-3.5 h-3.5 text-green-400" />
-              <span>{ping} ms</span>
+              <span>{ping > 0 ? `${ping} ms` : 'MEDINDO...'}</span>
             </div>
           </div>
         </div>

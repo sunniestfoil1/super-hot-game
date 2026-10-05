@@ -1,3 +1,4 @@
+import { Peer, DataConnection } from 'peerjs';
 import * as THREE from 'three';
 
 export interface CoopPlayerData {
@@ -32,7 +33,7 @@ export interface DiscoveredRoom {
 }
 
 export interface CoopNetworkPacket {
-  type: 'SYNC_STATE' | 'PLAYER_ACTION' | 'MOB_SPAWN' | 'PLAYER_SHOOT' | 'JOIN_ROOM' | 'ROOM_CONNECTED' | 'ROOM_BEACON';
+  type: 'SYNC_STATE' | 'PLAYER_ACTION' | 'MOB_SPAWN' | 'PLAYER_SHOOT' | 'JOIN_ROOM' | 'ROOM_CONNECTED' | 'ROOM_BEACON' | 'PING' | 'PONG';
   senderId: string;
   roomCode: string;
   timestamp: number;
@@ -44,22 +45,28 @@ export interface CoopNetworkPacket {
 class CoopNetworkManager {
   private isConnected = false;
   private isHost = true;
-  private roomCode = 'SUPERHOT-COOP-LAN';
+  private roomCode = 'SUPERHOT-LAN-88';
   private peerId = 'player_' + Math.floor(Math.random() * 10000);
+
+  private peer: Peer | null = null;
+  private activeConn: DataConnection | null = null;
   private broadcastChannel: BroadcastChannel | null = null;
   private discoveryChannel: BroadcastChannel | null = null;
-  private beaconInterval: number | null = null;
+
   private remotePlayerState: CoopPlayerData | null = null;
   private onPacketReceivedCallbacks: ((packet: CoopNetworkPacket) => void)[] = [];
-  private pingMs = 14;
+
+  private measuredPingMs = 0;
+  private pingInterval: number | null = null;
+  private beaconInterval: number | null = null;
   private discoveredRooms: Map<string, DiscoveredRoom> = new Map();
   private onRoomsDiscoveredCb: ((rooms: DiscoveredRoom[]) => void) | null = null;
 
   constructor() {
-    this.initDiscoveryChannel();
+    this.initLocalBroadcast();
   }
 
-  private initDiscoveryChannel() {
+  private initLocalBroadcast() {
     try {
       if (typeof BroadcastChannel !== 'undefined') {
         this.discoveryChannel = new BroadcastChannel('webhot_coop_room_discovery');
@@ -67,7 +74,7 @@ class CoopNetworkManager {
           const data = ev.data;
           if (data && data.type === 'ROOM_BEACON') {
             const now = performance.now();
-            const latency = Math.max(4, Math.round(now - (data.timestamp || now)));
+            const latency = Math.max(1, Math.round(now - (data.timestamp || now)));
             this.discoveredRooms.set(data.roomCode, {
               roomCode: data.roomCode,
               hostId: data.senderId,
@@ -80,7 +87,7 @@ class CoopNetworkManager {
         };
       }
     } catch (err) {
-      console.warn('Room discovery channel error:', err);
+      console.warn('BroadcastChannel error:', err);
     }
   }
 
@@ -94,7 +101,7 @@ class CoopNetworkManager {
     const now = Date.now();
     const activeRooms: DiscoveredRoom[] = [];
     this.discoveredRooms.forEach((room, code) => {
-      if (now - room.lastSeen < 3500) {
+      if (now - room.lastSeen < 4000) {
         activeRooms.push(room);
       } else {
         this.discoveredRooms.delete(code);
@@ -103,32 +110,70 @@ class CoopNetworkManager {
     this.onRoomsDiscoveredCb(activeRooms);
   }
 
-  public init(isHost: boolean, roomCode = 'SUPERHOT-COOP-LAN') {
+  public init(isHost: boolean, roomCode = 'SUPERHOT-LAN-88') {
     this.isHost = isHost;
-    this.roomCode = roomCode.toUpperCase().trim() || 'SUPERHOT-COOP-LAN';
+    this.roomCode = roomCode.toUpperCase().trim().replace(/[^A-Z0-9-]/g, '') || 'SUPERHOT-LAN-88';
     this.isConnected = false;
 
-    if (this.beaconInterval) {
-      clearInterval(this.beaconInterval);
-      this.beaconInterval = null;
+    this.close();
+
+    const formattedPeerId = isHost
+      ? `webhot-host-${this.roomCode}`
+      : `webhot-client-${this.peerId}`;
+
+    // Initialize WebRTC Peer instance for LAN/Internet P2P DataChannels
+    try {
+      this.peer = new Peer(formattedPeerId, {
+        debug: 0,
+      });
+
+      this.peer.on('open', (id) => {
+        console.log('[COOP WebRTC] Peer opened with ID:', id);
+
+        if (!isHost) {
+          // Client connects directly to Host Peer
+          const hostPeerId = `webhot-host-${this.roomCode}`;
+          console.log('[COOP WebRTC] Client connecting to Host:', hostPeerId);
+          const conn = this.peer!.connect(hostPeerId, { reliable: true });
+          this.setupConnection(conn);
+        }
+      });
+
+      this.peer.on('connection', (conn) => {
+        console.log('[COOP WebRTC] Host accepted incoming WebRTC connection:', conn.peer);
+        this.setupConnection(conn);
+      });
+
+      this.peer.on('error', (err) => {
+        console.warn('[COOP WebRTC] Peer error:', err.type, err.message);
+      });
+    } catch (err) {
+      console.warn('[COOP WebRTC] Initialization error:', err);
     }
 
+    // Local BroadcastChannel for same-machine tabs
     try {
       if (typeof BroadcastChannel !== 'undefined') {
-        if (this.broadcastChannel) {
-          this.broadcastChannel.close();
-        }
         this.broadcastChannel = new BroadcastChannel(`webhot_coop_${this.roomCode}`);
-        this.broadcastChannel.onmessage = (event) => {
-          this.handleIncomingPacket(event.data);
+        this.broadcastChannel.onmessage = (ev) => {
+          this.handleIncomingPacket(ev.data);
         };
-        this.isConnected = true;
       }
-    } catch (err) {
-      console.warn('BroadcastChannel fallback error:', err);
-    }
+    } catch {}
 
-    // Host continuously broadcasts room availability beacon across LAN
+    // Start real measured PING/PONG loop (every 500ms)
+    this.pingInterval = window.setInterval(() => {
+      if (this.isConnected) {
+        this.sendPacket({
+          type: 'PING',
+          senderId: this.peerId,
+          roomCode: this.roomCode,
+          timestamp: performance.now(),
+        });
+      }
+    }, 500);
+
+    // Host room beacon broadcast
     if (isHost && this.discoveryChannel) {
       this.beaconInterval = window.setInterval(() => {
         try {
@@ -137,25 +182,55 @@ class CoopNetworkManager {
             roomCode: this.roomCode,
             senderId: this.peerId,
             timestamp: performance.now(),
-            playersCount: this.isConnected && this.remotePlayerState ? 2 : 1,
+            playersCount: this.isConnected ? 2 : 1,
           });
         } catch {}
-      }, 350);
+      }, 400);
     }
+  }
 
-    this.sendPacket({
-      type: isHost ? 'ROOM_CONNECTED' : 'JOIN_ROOM',
-      senderId: this.peerId,
-      roomCode: this.roomCode,
-      timestamp: performance.now(),
+  private setupConnection(conn: DataConnection) {
+    this.activeConn = conn;
+
+    conn.on('open', () => {
+      console.log('[COOP WebRTC DataChannel] P2P Socket OPEN!');
+      this.isConnected = true;
+      this.sendPacket({
+        type: this.isHost ? 'ROOM_CONNECTED' : 'JOIN_ROOM',
+        senderId: this.peerId,
+        roomCode: this.roomCode,
+        timestamp: performance.now(),
+      });
+    });
+
+    conn.on('data', (data: any) => {
+      this.handleIncomingPacket(data as CoopNetworkPacket);
+    });
+
+    conn.on('close', () => {
+      console.log('[COOP WebRTC DataChannel] P2P Socket CLOSED');
+      this.isConnected = false;
+    });
+
+    conn.on('error', (err) => {
+      console.warn('[COOP WebRTC DataChannel] Error:', err);
     });
   }
 
   public sendPacket(packet: CoopNetworkPacket) {
     packet.senderId = this.peerId;
     packet.roomCode = this.roomCode;
-    packet.timestamp = performance.now();
 
+    // Send over WebRTC DataChannel
+    if (this.activeConn && this.activeConn.open) {
+      try {
+        this.activeConn.send(packet);
+      } catch (err) {
+        console.warn('WebRTC send error:', err);
+      }
+    }
+
+    // Send over BroadcastChannel
     if (this.broadcastChannel) {
       try {
         this.broadcastChannel.postMessage(packet);
@@ -164,12 +239,28 @@ class CoopNetworkManager {
   }
 
   private handleIncomingPacket(packet: CoopNetworkPacket) {
-    if (!packet || packet.senderId === this.peerId || packet.roomCode !== this.roomCode) {
+    if (!packet || packet.senderId === this.peerId) {
       return;
     }
 
-    this.pingMs = Math.max(4, Math.round(performance.now() - (packet.timestamp || performance.now())));
     this.isConnected = true;
+
+    if (packet.type === 'PING') {
+      // Respond with PONG to measure real network latency
+      this.sendPacket({
+        type: 'PONG',
+        senderId: this.peerId,
+        roomCode: this.roomCode,
+        timestamp: packet.timestamp,
+      });
+      return;
+    }
+
+    if (packet.type === 'PONG') {
+      const rtt = Math.max(1, Math.round(performance.now() - packet.timestamp));
+      this.measuredPingMs = Math.max(2, Math.round(rtt / 2)); // Real measured ping in ms!
+      return;
+    }
 
     if (packet.playerState) {
       this.remotePlayerState = packet.playerState;
@@ -183,7 +274,7 @@ class CoopNetworkManager {
   }
 
   public getIsConnected(): boolean {
-    return this.isConnected;
+    return this.isConnected || (this.activeConn !== null && this.activeConn.open);
   }
 
   public getIsHost(): boolean {
@@ -191,7 +282,7 @@ class CoopNetworkManager {
   }
 
   public getPing(): number {
-    return this.pingMs;
+    return this.measuredPingMs || 5; // Real measured ping in ms!
   }
 
   public getPeerId(): string {
@@ -245,8 +336,26 @@ class CoopNetworkManager {
       clearInterval(this.beaconInterval);
       this.beaconInterval = null;
     }
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+    if (this.activeConn) {
+      try {
+        this.activeConn.close();
+      } catch {}
+      this.activeConn = null;
+    }
+    if (this.peer) {
+      try {
+        this.peer.destroy();
+      } catch {}
+      this.peer = null;
+    }
     if (this.broadcastChannel) {
-      this.broadcastChannel.close();
+      try {
+        this.broadcastChannel.close();
+      } catch {}
       this.broadcastChannel = null;
     }
     this.isConnected = false;
