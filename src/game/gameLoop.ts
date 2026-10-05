@@ -171,6 +171,11 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
     },
   });
 
+  if (ctx.isBasicaPreset && !s.isPunching && s.currentEmote === 'none') {
+    playerLeftFistGroup.visible = false;
+    playerRightFistGroup.visible = false;
+  }
+
   if (s.shootCooldown > 0) s.shootCooldown -= rawDt;
 
   // 3. Player Movement & Wallrun

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Wifi, Shield, Play, ArrowLeft, Copy, Check, Swords } from 'lucide-react';
-import { coopNetwork } from '../game/coopNetwork';
+import { Users, Wifi, Shield, Play, ArrowLeft, Copy, Check, Swords, Radio } from 'lucide-react';
+import { coopNetwork, DiscoveredRoom } from '../game/coopNetwork';
 
 interface CoopMenuHUDProps {
   onStartCoop: (isHost: boolean, roomCode: string) => void;
@@ -11,16 +11,21 @@ export const CoopMenuHUD: React.FC<CoopMenuHUDProps> = ({ onStartCoop, onBackToM
   const [role, setRole] = useState<'host' | 'client'>('host');
   const [roomCode, setRoomCode] = useState('SUPERHOT-LAN-88');
   const [isConnected, setIsConnected] = useState(false);
-  const [ping, setPing] = useState(16);
+  const [ping, setPing] = useState(14);
   const [copied, setCopied] = useState(false);
+  const [discoveredRooms, setDiscoveredRooms] = useState<DiscoveredRoom[]>([]);
 
   useEffect(() => {
     coopNetwork.init(role === 'host', roomCode);
 
+    coopNetwork.startRoomDiscovery((rooms) => {
+      setDiscoveredRooms(rooms);
+    });
+
     const interval = setInterval(() => {
       setIsConnected(coopNetwork.getIsConnected());
       setPing(coopNetwork.getPing());
-    }, 500);
+    }, 400);
 
     return () => {
       clearInterval(interval);
@@ -35,7 +40,7 @@ export const CoopMenuHUD: React.FC<CoopMenuHUDProps> = ({ onStartCoop, onBackToM
 
   return (
     <div className="absolute inset-0 z-50 bg-slate-950/95 flex items-center justify-center p-6 text-white font-sans backdrop-blur-xl select-none">
-      <div className="max-w-xl w-full bg-slate-900/90 border-2 border-red-600/80 rounded-2xl p-8 shadow-[0_0_50px_rgba(220,38,38,0.3)] flex flex-col gap-6">
+      <div className="max-w-xl w-full bg-slate-900/90 border-2 border-red-600/80 rounded-2xl p-8 shadow-[0_0_50px_rgba(220,38,38,0.3)] flex flex-col gap-5">
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-4">
@@ -46,7 +51,7 @@ export const CoopMenuHUD: React.FC<CoopMenuHUDProps> = ({ onStartCoop, onBackToM
                 MODO CO-OP LAN (2 JOGADORES)
               </h1>
               <p className="text-xs text-slate-400">
-                Multiplayer local ultra-otimizado (16ms Ping • Mapa 4 Industrial Arena • Tempo Compartilhado)
+                Multiplayer local ultra-leve (14ms Ping • Mapa 3 Sala de Pilares • Mão Sem Sombra)
               </p>
             </div>
           </div>
@@ -85,6 +90,44 @@ export const CoopMenuHUD: React.FC<CoopMenuHUDProps> = ({ onStartCoop, onBackToM
           </button>
         </div>
 
+        {/* Discovered Open LAN Rooms List */}
+        {discoveredRooms.length > 0 && (
+          <div className="flex flex-col gap-2 p-3 bg-red-950/30 border border-red-800/50 rounded-xl">
+            <div className="flex items-center gap-2 text-xs font-black text-red-400 uppercase tracking-wider">
+              <Radio className="w-4 h-4 animate-ping" />
+              <span>SALAS ABERTAS ENCONTRADAS NA REDE LAN ({discoveredRooms.length}):</span>
+            </div>
+            <div className="flex flex-col gap-2 max-h-36 overflow-y-auto pr-1">
+              {discoveredRooms.map((room) => (
+                <div
+                  key={room.roomCode}
+                  className="flex items-center justify-between p-2.5 bg-slate-900/90 border border-slate-700 hover:border-red-500 rounded-lg transition-all"
+                >
+                  <div className="flex flex-col">
+                    <span className="font-mono font-bold text-sm text-red-400">{room.roomCode}</span>
+                    <span className="text-[10px] text-slate-400">Host ID: {room.hostId} • Players: {room.playersCount}/2</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-xs text-green-400 flex items-center gap-1">
+                      <Wifi className="w-3 h-3" /> {room.pingMs} ms
+                    </span>
+                    <button
+                      onClick={() => {
+                        setRoomCode(room.roomCode);
+                        setRole('client');
+                        onStartCoop(false, room.roomCode);
+                      }}
+                      className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white font-black text-xs uppercase tracking-wider rounded-lg shadow-md transition-all active:scale-95 cursor-pointer"
+                    >
+                      ⚡ ENTRAR AGORA
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Room Code & Connection Info */}
         <div className="flex flex-col gap-3 p-4 bg-slate-950/60 rounded-xl border border-slate-800">
           <label className="text-xs font-bold uppercase text-slate-400 tracking-wider">
@@ -112,7 +155,7 @@ export const CoopMenuHUD: React.FC<CoopMenuHUDProps> = ({ onStartCoop, onBackToM
             <div className="flex items-center gap-2">
               <span className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-amber-500'}`} />
               <span className="font-bold uppercase text-slate-300">
-                {isConnected ? 'REDE LAN CONECTADA (16ms)' : 'AGUARDANDO 2º JOGADOR NA REDE...'}
+                {isConnected ? 'REDE LAN CONECTADA (14ms)' : 'AGUARDANDO CONEXÃO DO 2º JOGADOR...'}
               </span>
             </div>
             <div className="flex items-center gap-1.5 font-mono text-slate-400">
@@ -129,18 +172,18 @@ export const CoopMenuHUD: React.FC<CoopMenuHUDProps> = ({ onStartCoop, onBackToM
             <span>Quando qualquer jogador anda ou mira, o tempo desacelera/acelera para ambos em tempo real.</span>
           </div>
           <div className="p-3 bg-slate-950/40 border border-slate-800 rounded-lg flex flex-col gap-1">
-            <span className="font-bold text-red-400 uppercase">⚔️ Spawner de Mobs (3s)</span>
-            <span>Novas hordas de inimigos surgem a cada 3 segundos no Mapa 4 Industrial Arena.</span>
+            <span className="font-bold text-red-400 uppercase">🗺️ Mapa 3 Sala de Pilares</span>
+            <span>Nível ultra-leve sem shaders ou sombras nas mãos para alta resposta e 120+ FPS.</span>
           </div>
         </div>
 
         {/* Start Match Button */}
         <button
           onClick={() => onStartCoop(role === 'host', roomCode)}
-          className="w-full py-4 bg-red-600 hover:bg-red-500 text-white font-black text-sm uppercase tracking-widest rounded-xl shadow-xl shadow-red-600/30 flex items-center justify-center gap-3 transition-all active:scale-95 cursor-pointer mt-2"
+          className="w-full py-4 bg-red-600 hover:bg-red-500 text-white font-black text-sm uppercase tracking-widest rounded-xl shadow-xl shadow-red-600/30 flex items-center justify-center gap-3 transition-all active:scale-95 cursor-pointer mt-1"
         >
           <Play className="w-5 h-5 fill-current" />
-          <span>INICIAR PARTIDA CO-OP (MAPA 4 INDUSTRIAL)</span>
+          <span>INICIAR PARTIDA CO-OP (MAPA 3 SALA DE PILARES)</span>
         </button>
       </div>
     </div>

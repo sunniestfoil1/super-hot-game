@@ -23,8 +23,16 @@ export interface CoopEnemySyncData {
   weaponType?: string;
 }
 
+export interface DiscoveredRoom {
+  roomCode: string;
+  hostId: string;
+  pingMs: number;
+  playersCount: number;
+  lastSeen: number;
+}
+
 export interface CoopNetworkPacket {
-  type: 'SYNC_STATE' | 'PLAYER_ACTION' | 'MOB_SPAWN' | 'PLAYER_SHOOT' | 'JOIN_ROOM' | 'ROOM_CONNECTED';
+  type: 'SYNC_STATE' | 'PLAYER_ACTION' | 'MOB_SPAWN' | 'PLAYER_SHOOT' | 'JOIN_ROOM' | 'ROOM_CONNECTED' | 'ROOM_BEACON';
   senderId: string;
   roomCode: string;
   timestamp: number;
@@ -39,19 +47,72 @@ class CoopNetworkManager {
   private roomCode = 'SUPERHOT-COOP-LAN';
   private peerId = 'player_' + Math.floor(Math.random() * 10000);
   private broadcastChannel: BroadcastChannel | null = null;
-  private peerConnection: RTCPeerConnection | null = null;
-  private dataChannel: RTCDataChannel | null = null;
+  private discoveryChannel: BroadcastChannel | null = null;
+  private beaconInterval: number | null = null;
   private remotePlayerState: CoopPlayerData | null = null;
   private onPacketReceivedCallbacks: ((packet: CoopNetworkPacket) => void)[] = [];
-  private pingMs = 16;
-  private lastPingTime = 0;
+  private pingMs = 14;
+  private discoveredRooms: Map<string, DiscoveredRoom> = new Map();
+  private onRoomsDiscoveredCb: ((rooms: DiscoveredRoom[]) => void) | null = null;
+
+  constructor() {
+    this.initDiscoveryChannel();
+  }
+
+  private initDiscoveryChannel() {
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        this.discoveryChannel = new BroadcastChannel('webhot_coop_room_discovery');
+        this.discoveryChannel.onmessage = (ev) => {
+          const data = ev.data;
+          if (data && data.type === 'ROOM_BEACON') {
+            const now = performance.now();
+            const latency = Math.max(4, Math.round(now - (data.timestamp || now)));
+            this.discoveredRooms.set(data.roomCode, {
+              roomCode: data.roomCode,
+              hostId: data.senderId,
+              pingMs: latency,
+              playersCount: data.playersCount || 1,
+              lastSeen: Date.now(),
+            });
+            this.notifyDiscoveredRooms();
+          }
+        };
+      }
+    } catch (err) {
+      console.warn('Room discovery channel error:', err);
+    }
+  }
+
+  public startRoomDiscovery(onRoomsUpdated: (rooms: DiscoveredRoom[]) => void) {
+    this.onRoomsDiscoveredCb = onRoomsUpdated;
+    this.notifyDiscoveredRooms();
+  }
+
+  private notifyDiscoveredRooms() {
+    if (!this.onRoomsDiscoveredCb) return;
+    const now = Date.now();
+    const activeRooms: DiscoveredRoom[] = [];
+    this.discoveredRooms.forEach((room, code) => {
+      if (now - room.lastSeen < 3500) {
+        activeRooms.push(room);
+      } else {
+        this.discoveredRooms.delete(code);
+      }
+    });
+    this.onRoomsDiscoveredCb(activeRooms);
+  }
 
   public init(isHost: boolean, roomCode = 'SUPERHOT-COOP-LAN') {
     this.isHost = isHost;
     this.roomCode = roomCode.toUpperCase().trim() || 'SUPERHOT-COOP-LAN';
     this.isConnected = false;
 
-    // 1. Local BroadcastChannel for instant PC/LAN tab-to-tab & local P2P sync
+    if (this.beaconInterval) {
+      clearInterval(this.beaconInterval);
+      this.beaconInterval = null;
+    }
+
     try {
       if (typeof BroadcastChannel !== 'undefined') {
         if (this.broadcastChannel) {
@@ -67,7 +128,21 @@ class CoopNetworkManager {
       console.warn('BroadcastChannel fallback error:', err);
     }
 
-    // Send initial join notification
+    // Host continuously broadcasts room availability beacon across LAN
+    if (isHost && this.discoveryChannel) {
+      this.beaconInterval = window.setInterval(() => {
+        try {
+          this.discoveryChannel?.postMessage({
+            type: 'ROOM_BEACON',
+            roomCode: this.roomCode,
+            senderId: this.peerId,
+            timestamp: performance.now(),
+            playersCount: this.isConnected && this.remotePlayerState ? 2 : 1,
+          });
+        } catch {}
+      }, 350);
+    }
+
     this.sendPacket({
       type: isHost ? 'ROOM_CONNECTED' : 'JOIN_ROOM',
       senderId: this.peerId,
@@ -93,7 +168,7 @@ class CoopNetworkManager {
       return;
     }
 
-    this.pingMs = Math.max(8, Math.round(performance.now() - (packet.timestamp || performance.now())));
+    this.pingMs = Math.max(4, Math.round(performance.now() - (packet.timestamp || performance.now())));
     this.isConnected = true;
 
     if (packet.playerState) {
@@ -152,6 +227,7 @@ class CoopNetworkManager {
         isShooting: data.isShooting,
         isPunching: false,
         isMoving: true,
+        dtFactor: data.dtFactor,
       },
     });
   }
@@ -165,6 +241,10 @@ class CoopNetworkManager {
   }
 
   public close() {
+    if (this.beaconInterval) {
+      clearInterval(this.beaconInterval);
+      this.beaconInterval = null;
+    }
     if (this.broadcastChannel) {
       this.broadcastChannel.close();
       this.broadcastChannel = null;

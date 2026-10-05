@@ -409,7 +409,7 @@ export const WebHotGame: React.FC = () => {
       coopNetwork.initClient(roomCode);
     }
 
-    loadLevel(0); // Map 4 / Industrial Arena
+    loadLevel(3); // Map 3 / Sala de Pilares (Ultra Leve)
 
     if (!showMobileHUD) {
       containerRef.current?.requestPointerLock();
@@ -685,12 +685,12 @@ export const WebHotGame: React.FC = () => {
         if (coopSpawnerTimerRef.current >= 3.0 && threeRef.current) {
           coopSpawnerTimerRef.current = 0;
           const spawnPositions = [
-            new THREE.Vector3(0, 1.7, -12),
-            new THREE.Vector3(-10, 1.7, 5),
-            new THREE.Vector3(10, 1.7, 5),
-            new THREE.Vector3(0, 1.7, 12),
-            new THREE.Vector3(-8, 1.7, -8),
-            new THREE.Vector3(8, 1.7, -8),
+            new THREE.Vector3(0, 0.0, -10),
+            new THREE.Vector3(-8, 0.0, 4),
+            new THREE.Vector3(8, 0.0, 4),
+            new THREE.Vector3(0, 0.0, 10),
+            new THREE.Vector3(-6, 0.0, -6),
+            new THREE.Vector3(6, 0.0, -6),
           ];
           const spawnPos = spawnPositions[Math.floor(Math.random() * spawnPositions.length)];
           spawnEnemyEntity(
