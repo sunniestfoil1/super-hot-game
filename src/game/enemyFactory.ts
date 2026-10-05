@@ -254,12 +254,14 @@ export const spawnEnemyEntity = async (
     } else if (wType === 'shotgun') {
       const sg = new THREE.Mesh(createGlbShotgunGeometry(), enemyWeaponMat);
       sg.position.set(0, -0.18, 0.08);
+      sg.rotation.set(0, Math.PI, 0);
       gunMesh = new THREE.Group();
       gunMesh.add(sg);
       rightForearm.add(gunMesh);
     } else if (wType === 'rifle') {
       const uzi = new THREE.Mesh(createGlbUziGeometry(), enemyWeaponMat);
       uzi.position.set(0, -0.18, 0.08);
+      uzi.rotation.set(0, Math.PI, 0);
       gunMesh = new THREE.Group();
       gunMesh.add(uzi);
       rightForearm.add(gunMesh);
@@ -269,7 +271,7 @@ export const spawnEnemyEntity = async (
         gunMesh = pistol.root;
         gunMesh.scale.setScalar(0.85);
         gunMesh.position.set(0, -0.18, 0.08);
-        gunMesh.rotation.set(0.15, 0, 0);
+        gunMesh.rotation.set(0.15, Math.PI, 0);
         rightForearm.add(gunMesh);
       }
     }

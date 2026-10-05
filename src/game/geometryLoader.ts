@@ -62,18 +62,11 @@ export const createGlbPartGeometry = (
   return fallbackGeo();
 };
 
+const sharedNativeBulletGeo = new THREE.CylinderGeometry(0.025, 0.045, 0.35, 8);
+sharedNativeBulletGeo.rotateX(Math.PI / 2); // Align forward along Z axis
+
 export const createGlbBulletGeometry = (): THREE.BufferGeometry => {
-  if (glbBulletData && glbBulletData.positions && glbBulletData.positions.length > 0) {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(glbBulletData.positions, 3));
-    if (glbBulletData.normals && glbBulletData.normals.length > 0) {
-      geo.setAttribute('normal', new THREE.Float32BufferAttribute(glbBulletData.normals, 3));
-    } else {
-      geo.computeVertexNormals();
-    }
-    return geo;
-  }
-  return new THREE.CylinderGeometry(0.04, 0.05, 0.25, 8);
+  return sharedNativeBulletGeo;
 };
 
 export const createGlbHandGeometry = (): THREE.BufferGeometry => {
