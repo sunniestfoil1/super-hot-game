@@ -30,6 +30,8 @@ import { MobileTouchHUD } from '../components/MobileTouchHUD';
 import { performanceRecorder } from './performanceRecorder';
 import { PerformanceRecorderHUD } from '../components/PerformanceRecorderHUD';
 import { collisionDebugger } from './collisionDebugger';
+import { replaySystem, ReplayCameraMode } from './replaySystem';
+import { ReplayHUD } from '../components/ReplayHUD';
 
 export const WebHotGame: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -58,6 +60,7 @@ export const WebHotGame: React.FC = () => {
   const [godMode, setGodMode] = useState(false);
   const [infiniteAmmo, setInfiniteAmmo] = useState(false);
   const [mantraWord, setMantraWord] = useState<'SUPER' | 'HOT'>('SUPER');
+  const [replayCamMode, setReplayCamMode] = useState<ReplayCameraMode>('first_person');
   const [showKillBanner, setShowKillBanner] = useState(false);
   const [deathWhiteout, setDeathWhiteout] = useState(0);
   const [bloodSplatterActive, setBloodSplatterActive] = useState(false);
@@ -166,16 +169,21 @@ export const WebHotGame: React.FC = () => {
     const s = stateRef.current;
     if (s.gameState === 'cleared') return;
     s.gameState = 'cleared';
-    s.clearSlowTimer = 2.2;
+    s.clearSlowTimer = 1.8;
     s.targetDtFactor = 0.07;
     s.dtFactor = 0.07;
-    // Primeiro: câmera lenta nos estilhaços; depois SUPER HOT flutuante
+
+    replaySystem.stopRecording();
+    replaySystem.startPlayback();
+
+    // Primeiro: câmera lenta nos estilhaços; depois SUPER HOT flutuante + Replay 1.0x Realtime
     mantraIntervalRef.current = window.setTimeout(() => startLevelClearMantra({
       onSetGameState: (st) => setGameState(st),
       onSetMantraWord: (w) => setMantraWord(w),
       onAutoAdvance: () => {
         // Tela branca cobrindo o load do próximo mapa
         setDeathWhiteout(1.0);
+        replaySystem.stopPlayback();
         // Prepara e monta o próximo nível sob o branco
         requestAnimationFrame(() => {
           loadLevelRef.current(stateRef.current.levelIndex + 1);
@@ -184,7 +192,7 @@ export const WebHotGame: React.FC = () => {
         });
       },
       intervalRef: mantraIntervalRef,
-    }), 2300);
+    }), 1800);
   }, []);
 
   // Shatter Complete Enemy
@@ -343,6 +351,7 @@ export const WebHotGame: React.FC = () => {
       mantraIntervalRef.current = null;
     }
     superhotSound.stopMantra();
+    replaySystem.startRecording();
 
 
 
@@ -880,6 +889,31 @@ export const WebHotGame: React.FC = () => {
             setEmoteWheelOpen(false);
           });
         }} />
+      )}
+
+      {/* Replay Cinemático 1.0x Realtime pós-fase */}
+      {gameState === 'cleared' && (
+        <ReplayHUD
+          mantraWord={mantraWord}
+          cameraMode={replayCamMode}
+          onToggleCamera={() => {
+            replaySystem.toggleCameraMode();
+            setReplayCamMode(replaySystem.getCameraMode());
+          }}
+          onSkipReplay={() => {
+            if (mantraIntervalRef.current) {
+              clearTimeout(mantraIntervalRef.current);
+              mantraIntervalRef.current = null;
+            }
+            superhotSound.stopMantra();
+            replaySystem.stopPlayback();
+            setDeathWhiteout(1.0);
+            requestAnimationFrame(() => {
+              loadLevel(currentLevelIndex + 1);
+              setTimeout(() => setDeathWhiteout(0), 400);
+            });
+          }}
+        />
       )}
 
       {/* Gravador & Telemetria de Desempenho (Caixa Preta - F8) */}

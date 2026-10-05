@@ -7,6 +7,7 @@ import { updateEnemyAi } from './enemyAi';
 import { updatePlayerMovementAndWallrun } from './playerController';
 import { animatePlayerArms } from './firstPersonArms';
 import { shardPool } from './shatterEffect';
+import { replaySystem } from './replaySystem';
 import { superhotSound } from '../audio/SuperhotAudio';
 import { SceneSetupResult } from './sceneSetup';
 
@@ -99,7 +100,6 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
     s.dtFactor = 0;
     s.vel.set(0, 0, 0);
   } else if (s.gameState === 'cleared') {
-    // Congela o jogador e deixa os estilhaços do último inimigo em câmera lenta
     if (s.clearSlowTimer > 0) {
       s.clearSlowTimer -= rawDt;
       s.targetDtFactor = 0.07;
@@ -108,6 +108,7 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
     } else {
       s.targetDtFactor = 1.0;
       s.dtFactor = 1.0;
+      replaySystem.updatePlayback(rawDt, sceneSetup, s.pos, () => {});
     }
   } else {
     const baseIdleRate = 0.03;
@@ -169,6 +170,7 @@ export const runGamePhysicsTick = (ctx: GameLoopContext) => {
 
   // 3. Player Movement & Wallrun
   if (s.gameState === 'playing') {
+    replaySystem.recordTick(s, rawDt);
     updatePlayerMovementAndWallrun({
       keys: s.keys,
       pos: s.pos,
