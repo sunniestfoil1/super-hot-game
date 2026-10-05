@@ -42,6 +42,9 @@ interface GameHUDProps {
   onNextLevel: () => void;
   onLockPointer: () => void;
   onExitToMenu?: () => void;
+  isMobileHUD?: boolean;
+  isMobilePaused?: boolean;
+  onToggleMobilePause?: (paused: boolean) => void;
 }
 
 function formatTime(seconds: number): string {
@@ -83,6 +86,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onLockPointer,
   onSelectLevel,
   onExitToMenu,
+  isMobileHUD,
+  isMobilePaused,
+  onToggleMobilePause,
 }) => {
   const [showConfig, setShowConfig] = useState(false);
   const [isBenchmarking, setIsBenchmarking] = useState(false);
@@ -500,11 +506,15 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           </div>
 
           {/* Pause overlay */}
-          {!isPointerLocked && (
+          {(isMobileHUD ? !!isMobilePaused : !isPointerLocked) && (
             <div
               onClick={(e) => {
                 if (e.target === e.currentTarget) {
-                  onLockPointer();
+                  if (isMobileHUD && onToggleMobilePause) {
+                    onToggleMobilePause(false);
+                  } else {
+                    onLockPointer();
+                  }
                 }
               }}
               className="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm cursor-pointer pointer-events-auto"
@@ -521,7 +531,13 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
                 <div className="flex flex-col gap-2.5">
                   <button
-                    onClick={onLockPointer}
+                    onClick={() => {
+                      if (isMobileHUD && onToggleMobilePause) {
+                        onToggleMobilePause(false);
+                      } else {
+                        onLockPointer();
+                      }
+                    }}
                     className="w-full py-3 bg-slate-950 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-widest cursor-pointer transition-colors flex items-center justify-center gap-2 shadow"
                   >
                     <Play className="w-4 h-4 fill-current" />
@@ -537,7 +553,12 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                   </button>
 
                   <button
-                    onClick={onRestart}
+                    onClick={() => {
+                      if (isMobileHUD && onToggleMobilePause) {
+                        onToggleMobilePause(false);
+                      }
+                      onRestart();
+                    }}
                     className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-950 font-black text-xs uppercase tracking-widest border border-slate-300 cursor-pointer transition-colors flex items-center justify-center gap-2"
                   >
                     <RotateCcw className="w-4 h-4 text-amber-600" />
@@ -546,7 +567,12 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
                   {onExitToMenu && (
                     <button
-                      onClick={onExitToMenu}
+                      onClick={() => {
+                        if (isMobileHUD && onToggleMobilePause) {
+                          onToggleMobilePause(false);
+                        }
+                        onExitToMenu();
+                      }}
                       className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-black text-xs uppercase tracking-widest cursor-pointer transition-colors flex items-center justify-center gap-2 shadow-md shadow-red-600/20"
                     >
                       SAIR PARA O MENU PRINCIPAL

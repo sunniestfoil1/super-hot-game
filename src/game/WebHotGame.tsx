@@ -49,6 +49,7 @@ export const WebHotGame: React.FC = () => {
   const [totalEnemies, setTotalEnemies] = useState(2);
   const [dtFactorDisplay, setDtFactorDisplay] = useState(0.03);
   const [isPointerLocked, setIsPointerLocked] = useState(false);
+  const [isMobilePaused, setIsMobilePaused] = useState(false);
   const [canCatchWeaponId, setCanCatchWeaponId] = useState<string | null>(null);
   const [canPunchEnemy, setCanPunchEnemy] = useState(false);
   const [canHotswitchEnemy, setCanHotswitchEnemy] = useState(false);
@@ -741,6 +742,7 @@ export const WebHotGame: React.FC = () => {
           onThrow={throwPlayerWeapon}
           onCatchWeapon={attemptCatchAirborneWeapon}
           onHotswitch={executeHotswitch}
+          onPause={() => setIsMobilePaused(true)}
         />
       )}
 
@@ -759,6 +761,9 @@ export const WebHotGame: React.FC = () => {
         dtFactor={dtFactorDisplay}
         gameState={gameState}
         isPointerLocked={isPointerLocked}
+        isMobileHUD={showMobileHUD}
+        isMobilePaused={isMobilePaused}
+        onToggleMobilePause={setIsMobilePaused}
         mantraWord={mantraWord}
         showKillBanner={showKillBanner}
         canCatchWeapon={canCatchWeaponId !== null}
@@ -779,6 +784,7 @@ export const WebHotGame: React.FC = () => {
             document.exitPointerLock();
           }
           setIsPointerLocked(false);
+          setIsMobilePaused(false);
           setGameState('menu');
           stateRef.current.gameState = 'menu';
         }}

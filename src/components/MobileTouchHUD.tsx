@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { WeaponType } from '../game/types';
-import { Crosshair, Zap, RotateCcw, Sliders, ShieldAlert } from 'lucide-react';
+import { Crosshair, Zap, RotateCcw, Sliders, Pause } from 'lucide-react';
 
 interface MobileTouchHUDProps {
   weaponType: WeaponType | null;
@@ -16,6 +16,7 @@ interface MobileTouchHUDProps {
   onThrow: () => void;
   onCatchWeapon: () => void;
   onHotswitch: () => void;
+  onPause: () => void;
 }
 
 export const MobileTouchHUD: React.FC<MobileTouchHUDProps> = ({
@@ -31,6 +32,7 @@ export const MobileTouchHUD: React.FC<MobileTouchHUDProps> = ({
   onThrow,
   onCatchWeapon,
   onHotswitch,
+  onPause,
 }) => {
   const [isPortrait, setIsPortrait] = useState(false);
   const [showSensModal, setShowSensModal] = useState(false);
@@ -179,11 +181,22 @@ export const MobileTouchHUD: React.FC<MobileTouchHUDProps> = ({
 
       {/* Main Touch Controls Overlay */}
       <div className="absolute inset-0 pointer-events-none select-none z-30 overflow-hidden font-sans">
+        {/* Top-Left Mobile Pause Button */}
+        <div className="absolute top-4 left-4 pointer-events-auto flex items-center gap-2">
+          <button
+            onClick={onPause}
+            className="px-3.5 py-2 bg-slate-950/85 border border-red-600/80 text-white text-[11px] font-black uppercase tracking-wider rounded-md flex items-center gap-1.5 shadow-xl active:scale-95 touch-none"
+          >
+            <Pause className="w-4 h-4 text-red-500 fill-red-500" />
+            PAUSA
+          </button>
+        </div>
+
         {/* Top-Right Touch Sensitivity Button */}
         <div className="absolute top-4 right-4 pointer-events-auto flex items-center gap-2">
           <button
             onClick={() => setShowSensModal((prev) => !prev)}
-            className="px-3 py-2 bg-slate-950/80 border border-slate-700 text-white text-[11px] font-black uppercase tracking-wider rounded flex items-center gap-1.5 shadow-lg active:scale-95"
+            className="px-3 py-2 bg-slate-950/80 border border-slate-700 text-white text-[11px] font-black uppercase tracking-wider rounded-md flex items-center gap-1.5 shadow-lg active:scale-95 touch-none"
           >
             <Sliders className="w-3.5 h-3.5 text-red-500" />
             SENSIBILIDADE
