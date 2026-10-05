@@ -181,6 +181,10 @@ export const updateEmissiveDissolveGhosts = (scene: THREE.Scene, gameDt: number)
     ghost.life += gameDt;
     const progress = Math.min(1.0, ghost.life / ghost.maxLife);
 
+    // Falling / Collapse animation momentum (walking_to_dying trajectory)
+    ghost.group.position.y = Math.max(0.05, ghost.group.position.y - gameDt * 0.85);
+    ghost.group.rotation.x += gameDt * 0.55;
+
     ghost.uniforms.forEach((u) => {
       u.progress.value = progress;
     });
