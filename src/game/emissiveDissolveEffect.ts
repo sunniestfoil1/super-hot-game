@@ -168,7 +168,7 @@ export const spawnEnemyEmissiveDissolveGhost = (
     materials,
     uniforms,
     life: 0,
-    maxLife: 1.8, // 1.8 seconds complete falling animation + Matrix dissolve transition
+    maxLife: 3.0, // 3.0 seconds Matrix dissolve transition
   });
 };
 
